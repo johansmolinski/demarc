@@ -43,7 +43,7 @@ pub struct RetroEmu {
     retro_load_game_fn: unsafe extern "C" fn(*const retro_game_info) -> bool,
     retro_get_avinfo_fn: unsafe extern "C" fn(*mut retro_system_av_info),
     state: RetroState,
-    vars: HashMap<String, String>,
+    vars: HashMap<String, CString>,
     audio_buf: Vec<i16>,
     core_path: CString,
     system_path: CString,
@@ -193,7 +193,6 @@ impl RetroEmu {
                 }
                 RETRO_ENVIRONMENT_SET_VARIABLES => {
                     println!("### SET");
-                    let mut map = HashMap::new();
                     if !data.is_null() {
                         let mut p = data as *const retro_variable;
                         while !(*p).key.is_null() {
@@ -203,14 +202,13 @@ impl RetroEmu {
                                 // Format: "Description; default|opt2|opt3|..."
                                 if let Some((_, opts)) = value.split_once("; ") {
                                     let default = opts.split('|').next().unwrap_or("").trim();
-                                    map.insert(key, default.into());
+                                    self.set_var(&key, default);
                                 }
                             }
                             p = p.add(1);
                         }
                     }
-                    println!("{:?}", map);
-                    self.vars = map;
+                    println!("{:?}", self.vars);
                     true
                 }
                 RETRO_ENVIRONMENT_GET_VARIABLE => {
@@ -222,7 +220,7 @@ impl RetroEmu {
                             println!("## GET {:?} {:?}", key, value);
                             // Safe: the CString lives in the static OPTIONS map
                             // and is never mutated after SET_VARIABLES.
-                            var.value = value.as_ptr() as *const i8;
+                            var.value = value.as_ptr();
                             return true;
                         }
                     }
@@ -241,6 +239,11 @@ impl RetroEmu {
                 _ => false,
             }
         }
+    }
+
+    pub fn set_var(&mut self, name: &str, val: impl Into<String>) {
+        let v = CString::new(val.into()).unwrap();
+        self.vars.insert(name.into(), v);
     }
 
     pub fn new(core_path: &Path, system_dir: &Path) -> Result<Self, Box<dyn std::error::Error>> {
@@ -302,9 +305,12 @@ impl RetroEmu {
             retro_set_input_poll(Self::input_poll_cb);
             retro_set_input_state(Self::input_state_cb);
 
-            retro_emu
-                .vars
-                .insert("vice_sid_extra".to_string(), "0xd420".into());
+            retro_emu.set_var("vice_sid_extra", "0xd420");
+            retro_emu.set_var("vice_sid_model", "8580");
+            //retro_emu.set_var("vice_autoloadwarp", "warp");
+            //retro_emu.set_var("vice_autostart", "warp");
+            //retro_emu.set_var("vice_cartridge", "rr38ppal.crt");
+            retro_emu.set_var("vice_jiffydos", "enabled");
 
             println!("## INIT");
             retro_init();
@@ -369,14 +375,14 @@ mod tests {
     fn retro_emu_works() {
         let core_path = Path::new("vice-libretro/vice_x64_libretro.so");
         let system_dir = Path::new("system");
-        let game_path = Path::new("quantum_icc2026_v1p.prg");
+        let game_path = Path::new("ne.d64");
 
         let mut retro_emu = RetroEmu::new(core_path, system_dir).unwrap();
         retro_emu.load_game(game_path).unwrap();
         println!("## RUN");
-        for _ in 0..400 {
+        for _ in 0..6000 {
             retro_emu.run();
         }
-        retro_emu.save_png(Path::new("test.png")).unwrap();
+        retro_emu.save_png(Path::new("test_d64.png")).unwrap();
     }
 }

@@ -13,6 +13,7 @@ use bevy::{
             ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
             UniformComponentPlugin,
         },
+        extract_resource::ExtractResourcePlugin,
         render_asset::RenderAssets,
         render_graph::{
             NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
@@ -33,6 +34,8 @@ use bevy::{
 // `SamplerBorderColor` isn't re-exported by Bevy; pull it from wgpu directly.
 use wgpu::SamplerBorderColor;
 
+use crate::AppSettings;
+
 const LOTTES_SHADER_PATH: &str = "shaders/lottes.wgsl";
 
 pub struct PostProcessPlugin;
@@ -40,6 +43,7 @@ pub struct PostProcessPlugin;
 impl Plugin for PostProcessPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
+            ExtractResourcePlugin::<AppSettings>::default(),
             ExtractComponentPlugin::<PostProcess>::default(),
             ExtractComponentPlugin::<PostProcessUniform>::default(),
             UniformComponentPlugin::<PostProcessUniform>::default(),
@@ -95,14 +99,14 @@ pub enum BorderMode {
 #[derive(Component, Clone, ExtractComponent)]
 pub struct PostProcess {
     pub source: Handle<Image>,
-    pub scale_mode: ScaleMode,
+    //pub scale_mode: ScaleMode,
     /// Display aspect ratio (width / height) the core wants the frame shown at.
     /// When `<= 0`, the source texture's pixel dimensions are used instead.
     pub aspect: f32,
     /// Manual multiplier applied on top of `aspect` for fine correction (1.0 = none).
     pub aspect_tweak: f32,
-    /// How the border (outside the source image) is sampled.
-    pub border_mode: BorderMode,
+    // How the border (outside the source image) is sampled.
+    // pub border_mode: BorderMode,
 }
 
 #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
@@ -113,6 +117,7 @@ pub struct PostProcessUniform {
 
 fn update_post_process_uniform(
     images: Res<Assets<Image>>,
+    settings: Res<AppSettings>,
     mut commands: Commands,
     mut query: Query<(
         Entity,
@@ -122,7 +127,7 @@ fn update_post_process_uniform(
     )>,
 ) {
     for (entity, pp, camera, existing) in &mut query {
-        let uniform = compute_uniform(pp, camera, &images);
+        let uniform = compute_uniform(pp, &(*settings), camera, &images);
         match existing {
             Some(mut u) => *u = uniform,
             None => {
@@ -134,6 +139,7 @@ fn update_post_process_uniform(
 
 fn compute_uniform(
     pp: &PostProcess,
+    settings: &AppSettings,
     camera: &Camera,
     images: &Assets<Image>,
 ) -> PostProcessUniform {
@@ -141,7 +147,7 @@ fn compute_uniform(
         uv_scale: Vec2::ONE,
         uv_offset: Vec2::ZERO,
     };
-    if matches!(pp.scale_mode, ScaleMode::Stretch) {
+    if matches!(settings.scale_mode, ScaleMode::Stretch) {
         return identity;
     }
     let Some(target) = camera.physical_target_size() else {
@@ -164,7 +170,7 @@ fn compute_uniform(
     };
     let source_aspect = base_aspect * pp.aspect_tweak;
     let target_wider = target_aspect > source_aspect;
-    let scale = match (pp.scale_mode, target_wider) {
+    let scale = match (settings.scale_mode, target_wider) {
         (ScaleMode::Stretch, _) => Vec2::ONE,
         // Fit: shrink the source uv range on the constrained axis, leaving bars.
         (ScaleMode::Fit, true) => Vec2::new(source_aspect / target_aspect, 1.0),
@@ -202,6 +208,8 @@ impl ViewNode for PostProcessNode {
         let gpu_images = world.resource::<RenderAssets<GpuImage>>();
         let uniforms = world.resource::<ComponentUniforms<PostProcessUniform>>();
 
+        let settings = world.resource::<AppSettings>();
+
         let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline_resource.pipeline_id)
         else {
             return Ok(());
@@ -215,7 +223,7 @@ impl ViewNode for PostProcessNode {
             return Ok(());
         };
 
-        let sampler = match post_process.border_mode {
+        let sampler = match settings.border_mode {
             BorderMode::Stretch => &pipeline_resource.sampler_stretch,
             BorderMode::Black => &pipeline_resource.sampler_black,
         };

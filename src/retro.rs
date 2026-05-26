@@ -33,9 +33,9 @@ use crate::{AppSettings, Args};
 pub struct RetroPlugin {}
 
 //const CORE_PATH_VICE: &str = "vice-libretro/vice_x64_libretro.so";
-const CORE_PATH_VICE: &str = "./vice_x64sc_libretro.so";
-const CORE_PATH_UAE: &str = "./puae_libretro.so";
-const CORE_PATH: &str = "libretro-uae/puae_libretro.so";
+const CORE_PATH_VICE: &str = "vice_x64sc_libretro.so";
+const CORE_PATH_UAE: &str = "puae_libretro.so";
+const CORE_PATH: &str = "vice_x64sc_libretro.so";
 
 /// The `system` directory (BIOS/firmware files) bundled into the binary at
 /// build time. Extracted to the user's cache dir on first run.
@@ -356,8 +356,9 @@ fn setup_retro(world: &mut World) {
     let settings: HashMap<String, String> =
         [("vice_cartridge".into(), "rr38ppal.crt".into())].into();
 
+    let core_path = get_core(SystemType::C64).unwrap();
     let games = &world.resource::<Args>().games;
-    let core = RetroCore::new(Path::new(CORE_PATH), system_dir(), None, settings)
+    let core = RetroCore::new(Path::new(&core_path), system_dir(), None, settings)
         .expect("Failed to load libretro core");
     world.insert_non_send_resource(Emulator {
         core,
@@ -389,12 +390,20 @@ fn get_sytem_type(path: &Path) -> SystemType {
     }
 }
 
-fn get_core(sytem_type: SystemType) -> PathBuf {
-    match sytem_type {
-        SystemType::C64 => CORE_PATH_VICE.into(),
-        SystemType::Amiga => CORE_PATH_UAE.into(),
-        _ => CORE_PATH.into(),
+fn get_core(sytem_type: SystemType) -> Option<PathBuf> {
+    let search_path: Vec<PathBuf> = vec![".".into(), "/usr/lib/libretro".into()];
+    let lib_name = match sytem_type {
+        SystemType::C64 => CORE_PATH_VICE,
+        SystemType::Amiga => CORE_PATH_UAE,
+        _ => CORE_PATH,
+    };
+    for path in search_path.iter() {
+        let check = path.join(lib_name);
+        if check.exists() {
+            return Some(check);
+        }
     }
+    None
 }
 fn create_core(
     system_type: SystemType,
@@ -417,13 +426,9 @@ fn create_core(
         set_var("vice_sid_model", "8580");
         set_var("vice_sound_sample_rate", "44100");
     }
-    RetroCore::new(
-        Path::new(&get_core(system_type)),
-        system_dir(),
-        Some(game),
-        settings,
-    )
-    .expect("Failed to create retro core")
+    let core = get_core(system_type).unwrap();
+    RetroCore::new(Path::new(&core), system_dir(), Some(game), settings)
+        .expect("Failed to create retro core")
 }
 
 fn run_retro(

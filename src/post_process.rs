@@ -34,14 +34,27 @@ use bevy::{
 // `SamplerBorderColor` isn't re-exported by Bevy; pull it from wgpu directly.
 use wgpu::SamplerBorderColor;
 
+use bevy::asset::{load_internal_asset, uuid_handle};
+use bevy::shader::Shader;
+
 use crate::AppSettings;
 
-const LOTTES_SHADER_PATH: &str = "shaders/lottes.wgsl";
+/// The Lottes CRT shader, embedded into the binary at build time (via
+/// `load_internal_asset!`/`include_str!`) so no `shaders/lottes.wgsl` asset file
+/// is needed at runtime. The UUID is an arbitrary fixed id for the handle.
+const LOTTES_SHADER_HANDLE: Handle<Shader> = uuid_handle!("b1a2c3d4-e5f6-47a8-9bcd-ef0123456789");
 
 pub struct PostProcessPlugin;
 
 impl Plugin for PostProcessPlugin {
     fn build(&self, app: &mut App) {
+        load_internal_asset!(
+            app,
+            LOTTES_SHADER_HANDLE,
+            "../assets/shaders/lottes.wgsl",
+            Shader::from_wgsl
+        );
+
         app.add_plugins((
             ExtractResourcePlugin::<AppSettings>::default(),
             ExtractComponentPlugin::<PostProcess>::default(),
@@ -273,7 +286,6 @@ struct PostProcessPipeline {
 fn init_lottes_pipeline(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
-    asset_server: Res<AssetServer>,
     fullscreen_shader: Res<FullscreenShader>,
     pipeline_cache: Res<PipelineCache>,
 ) {
@@ -310,7 +322,8 @@ fn init_lottes_pipeline(
         );
         render_device.create_sampler(&SamplerDescriptor::default())
     };
-    let shader = asset_server.load(LOTTES_SHADER_PATH);
+    let shader = LOTTES_SHADER_HANDLE;
+
     let pipeline_id = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
         label: Some("lottes_pipeline".into()),
         layout: vec![layout.clone()],

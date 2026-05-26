@@ -36,7 +36,38 @@ pub struct RetroPlugin {}
 const CORE_PATH_VICE: &str = "./vice_x64sc_libretro.so";
 const CORE_PATH_UAE: &str = "./puae_libretro.so";
 const CORE_PATH: &str = "libretro-uae/puae_libretro.so";
-const SYSTEM_DIR: &str = "system";
+
+/// The `system` directory (BIOS/firmware files) bundled into the binary at
+/// build time. Extracted to the user's cache dir on first run.
+const SYSTEM_ZIP: &[u8] = include_bytes!("../system.zip");
+
+/// Path to the extracted `system` directory.
+///
+/// On first call, the embedded [`SYSTEM_ZIP`] is unpacked into
+/// `~/.cache/rupix` (creating `~/.cache/rupix/system`) unless it already
+/// exists. The result is cached so extraction happens at most once per run.
+fn system_dir() -> &'static Path {
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let cache = std::env::var_os("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var_os("HOME").expect("HOME is not set")).join(".cache")
+            })
+            .join("rupix");
+        let system = cache.join("system");
+        if !system.exists() {
+            std::fs::create_dir_all(&cache).expect("Failed to create rupix cache directory");
+            let mut archive = zip::ZipArchive::new(std::io::Cursor::new(SYSTEM_ZIP))
+                .expect("Failed to read embedded system.zip");
+            archive
+                .extract(&cache)
+                .expect("Failed to extract system.zip");
+        }
+        system
+    })
+    .as_path()
+}
 
 #[derive(Resource)]
 struct Background {
@@ -326,7 +357,7 @@ fn setup_retro(world: &mut World) {
         [("vice_cartridge".into(), "rr38ppal.crt".into())].into();
 
     let games = &world.resource::<Args>().games;
-    let core = RetroCore::new(Path::new(CORE_PATH), Path::new(SYSTEM_DIR), None, settings)
+    let core = RetroCore::new(Path::new(CORE_PATH), system_dir(), None, settings)
         .expect("Failed to load libretro core");
     world.insert_non_send_resource(Emulator {
         core,
@@ -388,7 +419,7 @@ fn create_core(
     }
     RetroCore::new(
         Path::new(&get_core(system_type)),
-        Path::new(SYSTEM_DIR),
+        system_dir(),
         Some(game),
         settings,
     )

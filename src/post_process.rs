@@ -113,6 +113,8 @@ pub struct PostProcess {
 pub struct PostProcessUniform {
     uv_scale: Vec2,
     uv_offset: Vec2,
+    /// `1` when the CRT effect is active, `0` for a plain passthrough blit.
+    crt_enabled: u32,
 }
 
 fn update_post_process_uniform(
@@ -143,9 +145,11 @@ fn compute_uniform(
     camera: &Camera,
     images: &Assets<Image>,
 ) -> PostProcessUniform {
+    let crt_enabled = settings.crt_effect as u32;
     let identity = PostProcessUniform {
         uv_scale: Vec2::ONE,
         uv_offset: Vec2::ZERO,
+        crt_enabled,
     };
     if matches!(settings.scale_mode, ScaleMode::Stretch) {
         return identity;
@@ -183,6 +187,7 @@ fn compute_uniform(
     PostProcessUniform {
         uv_scale: scale,
         uv_offset: Vec2::new((1.0 - scale.x) * 0.5, (1.0 - scale.y) * 0.5),
+        crt_enabled,
     }
 }
 

@@ -9,6 +9,7 @@
 struct PostProcessUniform {
     uv_scale: vec2<f32>,
     uv_offset: vec2<f32>,
+    crt_enabled: u32,
 }
 @group(0) @binding(2) var<uniform> settings: PostProcessUniform;
 
@@ -206,6 +207,15 @@ fn mask(pos_in: vec2<f32>) -> vec3<f32> {
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let mapped_uv = (in.uv - settings.uv_offset) / settings.uv_scale;
+
+    // Plain passthrough when the CRT effect is disabled. An identity CRT filter
+    // round-trips to the raw sample (to_srgb(to_linear(s)) == s), so sampling
+    // directly keeps both paths consistent; out-of-range uv hits the border
+    // sampler, preserving letterbox/pillarbox bars.
+    if settings.crt_enabled == 0u {
+        let c = textureSampleLevel(screen_texture, texture_sampler, mapped_uv, 0.0).rgb;
+        return vec4<f32>(c, 1.0);
+    }
 
     let source_size = vec2<f32>(textureDimensions(screen_texture));
     let pos = warp(mapped_uv);

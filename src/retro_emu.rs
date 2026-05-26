@@ -623,7 +623,7 @@ mod tests {
     fn retro_amiga_works() {
         let core_path = Path::new("libretro-uae/puae_libretro.so");
         let system_dir = Path::new("system");
-        let game_path = Path::new("rebels.adf");
+        let game_path = Path::new("assets/rebels.adf");
 
         let mut settings = HashMap::new();
         settings.insert("puae_model".into(), "A500PLUS".into());
@@ -638,11 +638,12 @@ mod tests {
         }
         retro_emu.save_png(Path::new("test_amiga.png")).unwrap();
     }
+
     #[test]
     fn retro_vice_works() {
         let core_path = Path::new("vice-libretro/vice_x64_libretro.so");
         let system_dir = Path::new("system");
-        let game_path = Path::new("triad-plasmatica.prg");
+        let game_path = Path::new("assets/quantum_icc2026_v1p.prg");
 
         let mut retro_emu =
             RetroCore::new(core_path, system_dir, Some(game_path), HashMap::new()).unwrap();

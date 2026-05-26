@@ -74,10 +74,11 @@ impl From<BorderModeArg> for BorderMode {
     }
 }
 
-#[derive(Resource, Clone, ExtractResource)]
+#[derive(Resource, Default, Clone, ExtractResource)]
 struct AppSettings {
     border_mode: BorderMode,
     scale_mode: ScaleMode,
+    crt_effect: bool,
 }
 
 fn main() {
@@ -100,6 +101,7 @@ fn main() {
     let settings = AppSettings {
         border_mode: args.border.into(),
         scale_mode: args.scale.into(),
+        crt_effect: true,
     };
 
     App::new()

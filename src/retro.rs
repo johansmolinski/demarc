@@ -264,7 +264,7 @@ fn parse_m3u(path: &Path) -> Result<M3u> {
     Ok(M3u { tags, files })
 }
 
-fn setup_cameras(mut commands: Commands, args: Res<Args>, background: Res<Background>) {
+fn setup_cameras(mut commands: Commands, background: Res<Background>) {
     // Samples the emulator texture directly and renders it to the screen,
     // letting the post-process shader handle scaling to the window.
     commands.spawn((
@@ -438,36 +438,7 @@ fn run_retro(
         mods |= libretro::RETROKMOD_SCROLLOCK as u16;
     }
 
-    for e in input.get_just_pressed() {
-        if let Some(code) = emu.key_map.get(e) {
-            emu.core.press_key(*code, true, mods);
-        }
-    }
-    for e in input.get_just_released() {
-        if let Some(code) = emu.key_map.get(e) {
-            emu.core.press_key(*code, false, mods);
-        }
-    }
-
-    let motion = mouse_motion.delta;
-    if motion != Vec2::ZERO {
-        emu.core.add_mouse_motion(motion.x, motion.y);
-    }
-    emu.core.set_mouse_buttons(
-        mouse_buttons.pressed(MouseButton::Left),
-        mouse_buttons.pressed(MouseButton::Right),
-        mouse_buttons.pressed(MouseButton::Middle),
-    );
-
-    if input.just_pressed(KeyCode::F12) {
-        emu.core.next_disk();
-    }
-
-    if input.just_pressed(KeyCode::F11) {
-        emu.run_next = true;
-    }
-
-    if input.pressed(KeyCode::AltRight) {
+    if input.pressed(KeyCode::ControlRight) {
         if input.just_pressed(KeyCode::KeyB) {
             settings.border_mode = if settings.border_mode == BorderMode::Stretch {
                 BorderMode::Black
@@ -491,6 +462,36 @@ fn run_retro(
         if input.just_pressed(KeyCode::KeyM) {
             emu.core.set_mouse_buttons(true, false, false);
         }
+        if input.just_pressed(KeyCode::KeyC) {
+            settings.crt_effect = !settings.crt_effect;
+        }
+        if input.just_pressed(KeyCode::KeyD) {
+            emu.core.next_disk();
+        }
+        if input.just_pressed(KeyCode::KeyN) {
+            emu.run_next = true;
+        }
+    } else {
+        for e in input.get_just_pressed() {
+            if let Some(code) = emu.key_map.get(e) {
+                emu.core.press_key(*code, true, mods);
+            }
+        }
+        for e in input.get_just_released() {
+            if let Some(code) = emu.key_map.get(e) {
+                emu.core.press_key(*code, false, mods);
+            }
+        }
+
+        let motion = mouse_motion.delta;
+        if motion != Vec2::ZERO {
+            emu.core.add_mouse_motion(motion.x, motion.y);
+        }
+        emu.core.set_mouse_buttons(
+            mouse_buttons.pressed(MouseButton::Left),
+            mouse_buttons.pressed(MouseButton::Right),
+            mouse_buttons.pressed(MouseButton::Middle),
+        );
     }
 
     if emu.run_next {

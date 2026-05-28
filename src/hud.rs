@@ -7,11 +7,19 @@ use bevy_tweening::{CycleCompletedEvent, Delay, Tween, TweenAnim};
 #[derive(Component)]
 pub struct InfoText;
 
-#[derive(Message)]
+#[derive(Default)]
+pub enum ToastType {
+    #[default]
+    InfoText,
+    BottomLeft,
+}
+
+#[derive(Default, Message)]
 pub struct SpawnToast {
     pub text: String,
     pub delay: Duration,
     pub duration: Duration,
+    pub toast_type: ToastType,
 }
 
 #[derive(Resource, Default)]
@@ -23,22 +31,21 @@ fn spawn_toast(
     mut commands: Commands,
     mut state: ResMut<HudState>,
     mut reader: MessageReader<SpawnToast>,
+    asset_server: Res<AssetServer>,
 ) {
+    let font = asset_server.load("font.ttf");
     for msg in reader.read() {
-        if let Some(toast) = state.current_toast {
-            commands.entity(toast).despawn();
-        }
-        let tween0 = Tween::new(
+        let show_tween = Tween::new(
             EaseFunction::QuadraticInOut,
-            Duration::from_secs(1),
+            Duration::from_millis(500),
             TextColorLens {
                 start: Color::srgba(0., 0., 0., 0.),
                 end: Color::WHITE,
             },
         );
-        let tween = Tween::new(
+        let hide_tween = Tween::new(
             EaseFunction::QuadraticInOut,
-            Duration::from_secs(1),
+            Duration::from_millis(500),
             TextColorLens {
                 start: Color::WHITE,
                 end: Color::srgba(0., 0., 0., 0.),
@@ -46,34 +53,70 @@ fn spawn_toast(
         )
         .with_cycle_completed_event(true);
 
-        let delayed = Delay::new(msg.delay)
-            .then(tween0)
-            .then(Delay::new(msg.duration))
-            .then(tween);
+        let tween = if msg.delay == Duration::ZERO {
+            show_tween.then(Delay::new(msg.duration)).then(hide_tween)
+        } else {
+            Delay::new(msg.delay)
+                .then(show_tween)
+                .then(Delay::new(msg.duration))
+                .then(hide_tween)
+        };
 
-        let entity = commands.spawn((
-            Node {
-                //width: Val::Px(400.0),
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(0.0),
-                right: Val::Px(0.0),
-                margin: UiRect::all(Val::Px(60.0)),
-                ..default()
-            },
-            Text::new(&msg.text),
-            InfoText,
-            TextFont {
-                font_size: 48.0,
-                ..default()
-            },
-            TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-            TextLayout {
-                justify: Justify::Right,
-                linebreak: LineBreak::WordBoundary,
-            },
-            TweenAnim::new(delayed),
-        ));
-        state.current_toast = Some(entity.id());
+        match msg.toast_type {
+            ToastType::InfoText => {
+                if let Some(toast) = state.current_toast {
+                    commands.entity(toast).despawn();
+                }
+                let entity = commands.spawn((
+                    Node {
+                        //width: Val::Px(400.0),
+                        position_type: PositionType::Absolute,
+                        bottom: Val::Px(0.0),
+                        right: Val::Px(0.0),
+                        margin: UiRect::all(Val::Px(60.0)),
+                        ..default()
+                    },
+                    Text::new(&msg.text),
+                    InfoText,
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 48.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+                    TextLayout {
+                        justify: Justify::Right,
+                        linebreak: LineBreak::WordBoundary,
+                    },
+                    TweenAnim::new(tween),
+                ));
+                state.current_toast = Some(entity.id());
+            }
+            ToastType::BottomLeft => {
+                let _entity = commands.spawn((
+                    Node {
+                        //width: Val::Px(400.0),
+                        position_type: PositionType::Absolute,
+                        bottom: Val::Px(0.0),
+                        left: Val::Px(0.0),
+                        margin: UiRect::all(Val::Px(60.0)),
+                        ..default()
+                    },
+                    Text::new(&msg.text),
+                    TextFont {
+                        font: font.clone(),
+                        font_size: 64.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+                    TextLayout {
+                        justify: Justify::Right,
+                        linebreak: LineBreak::WordBoundary,
+                    },
+                    TweenAnim::new(tween),
+                ));
+            }
+        }
     }
 }
 

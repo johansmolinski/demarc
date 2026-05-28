@@ -20,11 +20,11 @@ use ringbuf::{
 };
 
 use crate::audio::{AudioResampler, init_audio_stream};
-use crate::hud::SpawnToast;
+use crate::hud::{SpawnToast, ToastType};
 use crate::libretro;
 use crate::post_process::{BorderMode, PostProcess, ScaleMode};
 use crate::retro_emu::RetroCore;
-use crate::utils::{SystemType, WorkingFile, get_sytem_type, handle_file};
+use crate::utils::{GameInfo, SystemType, WorkingFile, handle_file};
 use crate::{AppSettings, Args};
 
 pub struct RetroPlugin {}
@@ -247,41 +247,6 @@ impl Emulator {
     }
 }
 
-struct M3u {
-    tags: HashMap<String, String>,
-    files: Vec<PathBuf>,
-}
-
-fn parse_m3u(path: &Path) -> Result<M3u> {
-    let contents = std::fs::read_to_string(path)?;
-    let mut tags = HashMap::new();
-    let mut files: Vec<PathBuf> = vec![];
-    for line in contents.lines() {
-        if let Some(rest) = line.strip_prefix("#EXTINF:") {
-            let mut remaining = rest;
-            while let Some(eq) = remaining.find("=\"") {
-                let key_start = remaining[..eq]
-                    .rfind(|c: char| c.is_whitespace() || c == ',')
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
-                let key = remaining[key_start..eq].trim();
-                let after_quote = &remaining[eq + 2..];
-                let Some(end) = after_quote.find('"') else {
-                    break;
-                };
-                let value = &after_quote[..end];
-                if !key.is_empty() {
-                    tags.insert(key.to_string(), value.to_string());
-                }
-                remaining = &after_quote[end + 1..];
-            }
-        } else if !line.starts_with('#') {
-            files.push(line.into());
-        }
-    }
-    Ok(M3u { tags, files })
-}
-
 fn setup_cameras(mut commands: Commands, background: Res<Background>) {
     // Samples the emulator texture directly and renders it to the screen,
     // letting the post-process shader handle scaling to the window.
@@ -400,26 +365,6 @@ fn get_core(sytem_type: SystemType) -> Option<PathBuf> {
     }
     None
 }
-/// Find a direct child of `dir` whose name matches `name` case-insensitively.
-/// Amiga volumes are case-insensitive, so a host directory meant to act as one
-/// may use any casing (e.g. `S/Startup-Sequence`).
-fn find_child_ci(dir: &Path, name: &str) -> Option<PathBuf> {
-    std::fs::read_dir(dir).ok()?.flatten().find_map(|e| {
-        let path = e.path();
-        let matches = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.eq_ignore_ascii_case(name));
-        matches.then_some(path)
-    })
-}
-
-/// True if `game` is a directory containing an `s/startup-sequence` boot script,
-/// i.e. it can boot on its own as a hard drive without the WHDLoad helper.
-fn is_self_booting_dir(game: &Path) -> bool {
-    find_child_ci(game, "s")
-        .is_some_and(|s_dir| find_child_ci(&s_dir, "startup-sequence").is_some())
-}
 
 fn create_core(
     system_type: SystemType,
@@ -445,55 +390,6 @@ fn create_core(
     let core = get_core(system_type).unwrap();
     let retro_core = RetroCore::new(Path::new(&core), system_dir(), Some(game), settings)?;
     Ok(retro_core)
-}
-
-struct GameInfo {
-    title: String,
-    group: String,
-    year: String,
-    system_type: SystemType,
-    tags: HashMap<String, String>,
-}
-
-fn get_info(game: &Path) -> GameInfo {
-    let mut title: String = "".into();
-    let mut group: String = "".into();
-    let mut year: String = "".into();
-    let mut tags = HashMap::new();
-    let mut system_type = SystemType::Unknown;
-    if let Some(ext) = game.extension()
-        && ext == "m3u"
-    {
-        let m3u = parse_m3u(game).unwrap();
-        if let Some(t) = m3u.tags.get("title") {
-            title = format!("\"{t}\"");
-        }
-        if let Some(t) = m3u.tags.get("group") {
-            group = t.clone();
-        }
-        if let Some(t) = m3u.tags.get("year") {
-            year = t.clone();
-        }
-        for (key, val) in m3u.tags {
-            if key.starts_with("vice_") || key.starts_with("puae_") {
-                warn!("Insert {key} {val}");
-                tags.insert(key, val);
-            }
-        }
-        if let Some(path) = m3u.files.first() {
-            system_type = get_sytem_type(path);
-        }
-    } else {
-        system_type = get_sytem_type(game);
-        title = game.file_name().unwrap().to_string_lossy().to_string();
-    }
-    GameInfo {
-        title,
-        group,
-        year,
-        system_type,
-        tags,
-    }
 }
 
 fn run_retro(
@@ -567,7 +463,19 @@ fn run_retro(
             settings.crt_effect = !settings.crt_effect;
         }
         if input.just_pressed(KeyCode::KeyD) {
-            emu.core.next_disk();
+            let d = emu.core.next_disk() + 1;
+            let floppy = emu.work_file.system_type == SystemType::C64;
+
+            writer.write(SpawnToast {
+                toast_type: ToastType::BottomLeft,
+                duration: Duration::from_millis(1500),
+                text: if floppy {
+                    format!("\u{f09ef} #{d}")
+                } else {
+                    format!("\u{f0249} #{d}")
+                },
+                ..Default::default()
+            });
         }
         if input.just_pressed(KeyCode::KeyN) {
             emu.run_next = true;
@@ -597,26 +505,17 @@ fn run_retro(
     if emu.run_next && emu.current_game < emu.games.len() {
         emu.core.unload();
         let game = emu.games[emu.current_game].clone();
-        let GameInfo {
-            title,
-            group,
-            year,
-            system_type,
-            mut tags,
-        } = get_info(&game);
 
-        if settings.show_info {
-            writer.write(SpawnToast {
-                text: format!("{title}\n{group}\n{year}"),
-                delay: Duration::from_secs(5),
-                duration: Duration::from_secs(15),
-            });
-        }
-        for (key, val) in &emu.tags {
-            tags.insert(key.clone(), val.clone());
-        }
-
-        if let Ok(work_file) = handle_file(&game, &tags) {
+        if let Ok(work_file) = handle_file(&game, &emu.tags) {
+            if settings.show_info {
+                let GameInfo { title, group, year } = &work_file.game_info;
+                writer.write(SpawnToast {
+                    text: format!("{title}\n{group}\n{year}"),
+                    delay: Duration::from_secs(5),
+                    duration: Duration::from_secs(15),
+                    toast_type: ToastType::InfoText,
+                });
+            }
             let core = match create_core(
                 work_file.system_type,
                 &work_file.path,
@@ -624,7 +523,7 @@ fn run_retro(
             ) {
                 Ok(core) => core,
                 Err(e) => {
-                    error!("Could not load core for {system_type:?}: {e:#}");
+                    error!("Could not load core for {:?}: {e:#}", work_file.system_type);
                     return;
                 }
             };
@@ -663,7 +562,7 @@ fn run_retro(
         return;
     }
 
-    emu.match_fps = false; //(1.0 - emu.display_fps / emu.core.fps()).abs() < 0.02;
+    emu.match_fps = true; //(1.0 - emu.display_fps / emu.core.fps()).abs() < 0.02;
 
     if emu.match_fps {
         //let diff = 7000 - emu.producer.occupied_len();

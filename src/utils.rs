@@ -15,7 +15,7 @@ pub enum SystemType {
     Unknown,
 }
 
-pub fn get_sytem_type(path: &Path) -> SystemType {
+pub fn get_system_type(path: &Path) -> SystemType {
     if let Some(ext) = path.extension().and_then(|p| p.to_str()) {
         match ext {
             "adf" => SystemType::Amiga,
@@ -32,6 +32,7 @@ pub struct WorkingFile {
     pub path: PathBuf,
     pub system_type: SystemType,
     pub settings: HashMap<String, String>,
+    pub game_info: GameInfo,
     is_temp: bool,
 }
 
@@ -43,6 +44,82 @@ impl Drop for WorkingFile {
     }
 }
 
+struct M3u {
+    tags: HashMap<String, String>,
+    files: Vec<PathBuf>,
+}
+
+fn parse_m3u(path: &Path) -> Result<M3u> {
+    let contents = std::fs::read_to_string(path)?;
+    let mut tags = HashMap::new();
+    let mut files: Vec<PathBuf> = vec![];
+    for line in contents.lines() {
+        if let Some(rest) = line.strip_prefix("#EXTINF:") {
+            let mut remaining = rest;
+            while let Some(eq) = remaining.find("=\"") {
+                let key_start = remaining[..eq]
+                    .rfind(|c: char| c.is_whitespace() || c == ',')
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                let key = remaining[key_start..eq].trim();
+                let after_quote = &remaining[eq + 2..];
+                let Some(end) = after_quote.find('"') else {
+                    break;
+                };
+                let value = &after_quote[..end];
+                if !key.is_empty() {
+                    tags.insert(key.to_string(), value.to_string());
+                }
+                remaining = &after_quote[end + 1..];
+            }
+        } else if !line.starts_with('#') {
+            files.push(line.into());
+        }
+    }
+    Ok(M3u { tags, files })
+}
+
+#[derive(Default, Debug)]
+pub struct GameInfo {
+    pub title: String,
+    pub group: String,
+    pub year: String,
+}
+
+fn get_info(game: &Path, tags: &mut HashMap<String, String>) -> (GameInfo, SystemType) {
+    let mut title: String = "".into();
+    let mut group: String = "".into();
+    let mut year: String = "".into();
+    //  let mut tags = HashMap::new();
+    let mut system_type = SystemType::Unknown;
+    if let Some(ext) = game.extension()
+        && ext == "m3u"
+    {
+        let m3u = parse_m3u(game).unwrap();
+        if let Some(t) = m3u.tags.get("title") {
+            title = format!("\"{t}\"");
+        }
+        if let Some(t) = m3u.tags.get("group") {
+            group = t.clone();
+        }
+        if let Some(t) = m3u.tags.get("year") {
+            year = t.clone();
+        }
+        for (key, val) in m3u.tags {
+            if key.starts_with("vice_") || key.starts_with("puae_") {
+                //warn!("Insert {key} {val}");
+                tags.insert(key, val);
+            }
+        }
+        if let Some(path) = m3u.files.first() {
+            system_type = get_system_type(path);
+        }
+    } else {
+        system_type = get_system_type(game);
+        title = game.file_name().unwrap().to_string_lossy().to_string();
+    }
+    (GameInfo { title, group, year }, system_type)
+}
 /// Find a direct child of `dir` whose name matches `name` case-insensitively.
 /// Amiga volumes are case-insensitive, so a host directory meant to act as one
 /// may use any casing (e.g. `S/Startup-Sequence`).
@@ -70,7 +147,8 @@ pub fn handle_file(in_path: &Path, tags: &HashMap<String, String>) -> Result<Wor
     if !path.exists() {
         bail!("No such file");
     }
-    let mut system_type = get_sytem_type(in_path);
+    let (game_info, mut system_type) = get_info(in_path, &mut settings);
+
     if system_type == SystemType::Unknown {
         if path.is_dir() {
             if is_self_booting_dir(&path) {
@@ -106,6 +184,7 @@ pub fn handle_file(in_path: &Path, tags: &HashMap<String, String>) -> Result<Wor
         system_type,
         path,
         settings,
+        game_info,
         is_temp,
     })
 }

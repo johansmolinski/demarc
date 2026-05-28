@@ -99,6 +99,7 @@ pub struct RetroCore {
     retro_load_game_fn: unsafe extern "C" fn(*const retro_game_info) -> bool,
     retro_get_avinfo_fn: unsafe extern "C" fn(*mut retro_system_av_info),
     retro_deinit_fn: unsafe extern "C" fn(),
+    retro_reset_fn: unsafe extern "C" fn(),
     retro_set_keyboard: Option<unsafe extern "C" fn(bool, c_uint, c_uint, c_ushort)>,
     disk_ext_callback: Option<retro_disk_control_ext_callback>,
     disk_callback: Option<retro_disk_control_callback>,
@@ -128,10 +129,13 @@ impl RetroCore {
         self.lib = None;
     }
     pub fn next_disk(&mut self) -> u32 {
-        self.image_index += 1;
         if let Some(cb) = self.disk_ext_callback {
             unsafe {
                 let count = (cb.get_num_images.unwrap())();
+                if count < 2 {
+                    return 0;
+                }
+                self.image_index += 1;
                 self.image_index %= count;
                 (cb.set_eject_state.unwrap())(true);
                 (cb.set_image_index.unwrap())(self.image_index);
@@ -140,6 +144,10 @@ impl RetroCore {
         } else if let Some(cb) = self.disk_callback {
             unsafe {
                 let count = (cb.get_num_images.unwrap())();
+                if count < 2 {
+                    return 0;
+                }
+                self.image_index += 1;
                 self.image_index %= count;
                 (cb.set_eject_state.unwrap())(true);
                 (cb.set_image_index.unwrap())(self.image_index);
@@ -488,11 +496,14 @@ impl RetroCore {
                 lib.get(b"retro_run")?;
             let retro_deinit_sym: libloading::Symbol<unsafe extern "C" fn()> =
                 lib.get(b"retro_deinit")?;
+            let retro_reset_sym: libloading::Symbol<unsafe extern "C" fn()> =
+                lib.get(b"retro_reset")?;
             // let retro_unload_game_sym: libloading::Symbol<unsafe extern "C" fn()> =
             //     lib.get(b"retro_unload_game")?;
 
             let retro_run_fn: unsafe extern "C" fn() = *retro_run_sym;
             let retro_deinit_fn: unsafe extern "C" fn() = *retro_deinit_sym;
+            let retro_reset_fn: unsafe extern "C" fn() = *retro_reset_sym;
             let retro_get_avinfo_fn: unsafe extern "C" fn(*mut retro_system_av_info) =
                 *retro_get_system_av_info;
             //let retro_unload_game_fn: unsafe extern "C" fn() = *retro_unload_game_sym;
@@ -505,6 +516,7 @@ impl RetroCore {
                 retro_load_game_fn,
                 retro_get_avinfo_fn,
                 retro_deinit_fn,
+                retro_reset_fn,
                 retro_set_keyboard: None,
                 disk_ext_callback: None,
                 disk_callback: None,
@@ -550,6 +562,10 @@ impl RetroCore {
             retro_emu.lib = Some(lib);
             Ok(retro_emu)
         }
+    }
+
+    pub fn reset(&mut self) {
+        unsafe { (self.retro_reset_fn)() }
     }
 
     fn load_game(&mut self, game_path: &Path) -> Result<()> {

@@ -20,7 +20,7 @@ mod utils;
 
 use hud::HudPlugin;
 use post_process::{BorderMode, PostProcessPlugin, ScaleMode};
-use retro::RetroPlugin;
+use retro::{RetroPlugin, system_dir};
 use screensaver::ScreenSaverPlugin;
 
 #[derive(Parser, Debug, Resource, Clone)]
@@ -178,10 +178,18 @@ fn main() {
         .insert_resource(args)
         .insert_resource(settings)
         .add_plugins((
-            DefaultPlugins.set(WindowPlugin {
-                primary_window,
-                ..Default::default()
-            }),
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window,
+                    ..Default::default()
+                })
+                // Load assets from the extracted `system` dir so they can ship
+                // inside `system.zip` (embedded in the binary) rather than a
+                // loose `assets/` folder next to the executable.
+                .set(AssetPlugin {
+                    file_path: system_dir().to_string_lossy().into_owned(),
+                    ..Default::default()
+                }),
             RetroPlugin {},
             PostProcessPlugin,
             TweeningPlugin,

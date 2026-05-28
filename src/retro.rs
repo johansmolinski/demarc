@@ -12,6 +12,7 @@ use bevy::{
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
     render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    render::view::screenshot::{Screenshot, save_to_disk},
 };
 
 use ringbuf::{
@@ -38,6 +39,19 @@ const LIB_EXT: &str = "so";
 
 const CORE_NAME_VICE: &str = "vice_x64sc_libretro";
 const CORE_NAME_UAE: &str = "puae_libretro";
+const CORE_NAME_AMSTRAD: &str = "cap32_libretro";
+
+/// Audio ring-buffer fill level (in f32 samples) the PI controller aims to
+/// hold. Sits between the duplicate (2000) and frame-drop (12000) thresholds,
+/// leaving headroom on both sides.
+const AUDIO_BUF_TARGET: f64 = 6000.0;
+/// Proportional / integral gains for the audio-buffer controller. Error is
+/// normalized by [`AUDIO_BUF_TARGET`], so these are dimensionless.
+const AUDIO_PI_KP: f64 = 0.002;
+const AUDIO_PI_KI: f64 = 0.0005;
+/// Largest fractional sample-rate correction the controller may request
+/// (±0.5%), enough to absorb display/audio clock drift without audible pitch.
+const AUDIO_RATE_MAX_ADJUST: f64 = 0.005;
 
 /// The `system` directory (BIOS/firmware files) bundled into the binary at
 /// build time. Extracted to the user's cache dir on first run.
@@ -48,7 +62,7 @@ const SYSTEM_ZIP: &[u8] = include_bytes!("../system.zip");
 /// On first call, the embedded [`SYSTEM_ZIP`] is unpacked into
 /// `~/.cache/demarc` (creating `~/.cache/demarc/system`) unless it already
 /// exists. The result is cached so extraction happens at most once per run.
-fn system_dir() -> &'static Path {
+pub fn system_dir() -> &'static Path {
     static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     DIR.get_or_init(|| {
         let cache = std::env::var_os("XDG_CACHE_HOME")
@@ -92,6 +106,8 @@ struct Emulator {
     resampler: AudioResampler,
     _stream: cpal::Stream,
     key_map: HashMap<KeyCode, libretro::retro_key>,
+    /// Integral accumulator for the audio-buffer PI controller.
+    audio_buf_integral: f64,
 }
 
 impl Emulator {
@@ -280,6 +296,13 @@ fn fix_window(mut window: Single<&mut Window, With<PrimaryWindow>>) {
     window.mode = WindowMode::Windowed;
 }
 
+/// Capture the actual rendered window content and write it to `screenshot.png`.
+fn screenshot(commands: &mut Commands) {
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk("screenshot.png"));
+}
+
 fn setup_retro(world: &mut World) {
     let (producer, consumer) = ringbuf::HeapRb::<f32>::new(4096 * 8).split();
     let (sample_rate, stream) = init_audio_stream(consumer).unwrap();
@@ -326,10 +349,10 @@ fn setup_retro(world: &mut World) {
 
     if args.high {
         set_var("puae_z3mem_size", "128");
-        set_var("puae_fpu_model", "68881");
+        set_var("puae_fpu_model", "68882");
         set_var("puae_cpu_model", "68030");
         // set_var("puae_cpu_throttle", "10000");
-        //set_var("puae_cpu_compatibility", "exact");
+        set_var("puae_cpu_compatibility", "exact");
     }
 
     world.insert_non_send_resource(Emulator {
@@ -346,6 +369,7 @@ fn setup_retro(world: &mut World) {
         run_next: !games.is_empty(),
         games: games.clone(),
         key_map: Emulator::build_keycode_map(),
+        audio_buf_integral: 0.0,
     });
 }
 
@@ -354,6 +378,7 @@ fn get_core(sytem_type: SystemType) -> Option<PathBuf> {
     let core_name = match sytem_type {
         SystemType::C64 => CORE_NAME_VICE,
         SystemType::Amiga => CORE_NAME_UAE,
+        SystemType::Amstrad => CORE_NAME_AMSTRAD,
         _ => CORE_NAME_UAE,
     };
     let lib_file = format!("{core_name}.{LIB_EXT}");
@@ -386,6 +411,8 @@ fn create_core(
         set_var("vice_sid_extra", "none");
         set_var("vice_sid_model", "8580");
         set_var("vice_sound_sample_rate", "44100");
+    } else if system_type == SystemType::Amstrad {
+        set_var("cap32_statusbar", "disabled");
     }
     let core = get_core(system_type).unwrap();
     let retro_core = RetroCore::new(Path::new(&core), system_dir(), Some(game), settings)?;
@@ -393,6 +420,7 @@ fn create_core(
 }
 
 fn run_retro(
+    mut commands: Commands,
     mut emu: NonSendMut<Emulator>,
     input: Res<ButtonInput<KeyCode>>,
     mut settings: ResMut<AppSettings>,
@@ -477,8 +505,20 @@ fn run_retro(
                 ..Default::default()
             });
         }
+        if input.just_pressed(KeyCode::KeyR) {
+            emu.core.reset();
+        }
         if input.just_pressed(KeyCode::KeyN) {
             emu.run_next = true;
+        }
+        if input.just_pressed(KeyCode::KeyW) {
+            for _ in 0..500 {
+                emu.core.run();
+                emu.core.with_audio(|_| {});
+            }
+        }
+        if input.just_pressed(KeyCode::KeyP) {
+            screenshot(&mut commands);
         }
     } else {
         for e in input.get_just_pressed() {
@@ -532,6 +572,7 @@ fn run_retro(
             emu.run_next = false;
             emu.current_game += 1;
             emu.next_frame = time.elapsed_secs_f64();
+            info!("FRAME START");
         }
     }
 
@@ -548,24 +589,45 @@ fn run_retro(
         }
     }
 
+    let ratio = (1.0 - emu.display_fps / emu.core.fps()).abs();
+    if ratio < 0.01 && !emu.match_fps {
+        emu.match_fps = true;
+        info!("Switching to match fps");
+    }
+    // if ratio > 0.1 && emu.match_fps {
+    //     emu.match_fps = false;
+    //     info!("Switching to timing");
+    // }
+
     let frame_time = 1.0 / emu.core.fps();
     // info!(
-    //     "FRAME FPS {}/{} t={} AUDIO {}",
-    //     fps,
+    //     "FRAME FPS {}/{} = {} : t={} AUDIO {}",
+    //     _fps,
     //     emu.display_fps,
+    //     ratio,
     //     time.delta_secs(),
     //     emu.producer.occupied_len()
     // );
     if emu.producer.occupied_len() > 12000 {
-        warn!("Dropping frame");
+        trace!("Dropping frame");
         emu.next_frame += frame_time;
         return;
     }
 
-    emu.match_fps = true; //(1.0 - emu.display_fps / emu.core.fps()).abs() < 0.02;
-
     if emu.match_fps {
-        //let diff = 7000 - emu.producer.occupied_len();
+        // PI controller on audio-buffer fill. Output is a fractional
+        // sample-rate correction (positive => buffer too full => speed input
+        // up so the resampler emits fewer samples and the buffer drains).
+        // Not applied yet — just computed and logged for tuning.
+        let fill = emu.producer.occupied_len() as f64;
+        let error = (fill - AUDIO_BUF_TARGET) / AUDIO_BUF_TARGET;
+        emu.audio_buf_integral += error * delta;
+        // Anti-windup: keep the integral term within the output clamp.
+        let i_max = AUDIO_RATE_MAX_ADJUST / AUDIO_PI_KI;
+        emu.audio_buf_integral = emu.audio_buf_integral.clamp(-i_max, i_max);
+        //let adjust = (AUDIO_PI_KP * error + AUDIO_PI_KI * emu.audio_buf_integral)
+        //    .clamp(-AUDIO_RATE_MAX_ADJUST, AUDIO_RATE_MAX_ADJUST);
+        //info!("audio buf fill={fill:.0} err={error:+.3} adjust={adjust:+.5}");
         emu.core.run();
     } else {
         let t = time.elapsed_secs_f64();

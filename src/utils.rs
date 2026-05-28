@@ -1,5 +1,6 @@
 use anyhow::Result;
 use anyhow::bail;
+use tracing::info;
 
 use std::{
     collections::HashMap,
@@ -11,15 +12,19 @@ use std::{
 pub enum SystemType {
     C64,
     Amiga,
+    Amstrad,
     #[default]
     Unknown,
+    UnknownM3U,
 }
 
 pub fn get_system_type(path: &Path) -> SystemType {
     if let Some(ext) = path.extension().and_then(|p| p.to_str()) {
-        match ext {
-            "adf" => SystemType::Amiga,
-            "prg" | "d64" => SystemType::C64,
+        let ext = ext.to_lowercase();
+        match ext.as_str() {
+            "adf" | "dms" | "hdf" => SystemType::Amiga,
+            "prg" | "d64" | "d81" => SystemType::C64,
+            "dsk" => SystemType::Amstrad,
             _ => SystemType::Unknown,
         }
     } else {
@@ -54,6 +59,9 @@ fn parse_m3u(path: &Path) -> Result<M3u> {
     let mut tags = HashMap::new();
     let mut files: Vec<PathBuf> = vec![];
     for line in contents.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
         if let Some(rest) = line.strip_prefix("#EXTINF:") {
             let mut remaining = rest;
             while let Some(eq) = remaining.find("=\"") {
@@ -96,6 +104,7 @@ fn get_info(game: &Path, tags: &mut HashMap<String, String>) -> (GameInfo, Syste
         && ext == "m3u"
     {
         let m3u = parse_m3u(game).unwrap();
+        info!("{:?}", m3u.tags);
         if let Some(t) = m3u.tags.get("title") {
             title = format!("\"{t}\"");
         }
@@ -113,6 +122,9 @@ fn get_info(game: &Path, tags: &mut HashMap<String, String>) -> (GameInfo, Syste
         }
         if let Some(path) = m3u.files.first() {
             system_type = get_system_type(path);
+        }
+        if system_type == SystemType::Unknown {
+            system_type = SystemType::UnknownM3U;
         }
     } else {
         system_type = get_system_type(game);
@@ -149,7 +161,10 @@ pub fn handle_file(in_path: &Path, tags: &HashMap<String, String>) -> Result<Wor
     }
     let (game_info, mut system_type) = get_info(in_path, &mut settings);
 
-    if system_type == SystemType::Unknown {
+    if system_type == SystemType::UnknownM3U {
+        path = path.parent().unwrap().to_owned();
+    }
+    if system_type == SystemType::Unknown || system_type == SystemType::UnknownM3U {
         if path.is_dir() {
             if is_self_booting_dir(&path) {
                 system_type = SystemType::Amiga;
@@ -170,7 +185,7 @@ pub fn handle_file(in_path: &Path, tags: &HashMap<String, String>) -> Result<Wor
                 fs::create_dir(&s_dir)?;
                 fs::write(s_dir.join("startup-sequence"), "amiga_file\n")?;
                 fs::copy(&path, target_dir.join("amiga_file"))?;
-                if std::fs::metadata(&path)?.len() > 1024 * 1024 {
+                if std::fs::metadata(&path)?.len() > 850 * 1024 {
                     settings.insert("puae_model".into(), "A1200".into());
                 }
                 path = target_dir;
@@ -180,6 +195,7 @@ pub fn handle_file(in_path: &Path, tags: &HashMap<String, String>) -> Result<Wor
             }
         }
     }
+    info!("LOADING {:?} {:?}", path, settings);
     Ok(WorkingFile {
         system_type,
         path,

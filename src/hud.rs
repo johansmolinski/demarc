@@ -103,6 +103,10 @@ fn spawn_toast(
                         ..default()
                     },
                     Text::new(&msg.text),
+                    // TextShadow {
+                    //     offset: Vec2::new(2.0, -2.0),
+                    //     color: Color::BLACK,
+                    // },
                     TextFont {
                         font: font.clone(),
                         font_size: 64.0,

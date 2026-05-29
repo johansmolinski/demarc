@@ -67,12 +67,11 @@ const SYSTEM_ZIP: &[u8] = include_bytes!("../system.zip");
 pub fn system_dir() -> &'static Path {
     static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     DIR.get_or_init(|| {
-        let cache = std::env::var_os("XDG_CACHE_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var_os("HOME").expect("HOME is not set")).join(".cache")
-            })
-            .join("demarc");
+        let path = ["XDG_CACHE_HOME", "HOME", "HOMEPATH"]
+            .iter()
+            .find_map(|var| std::env::var_os(var).map(PathBuf::from))
+            .unwrap_or("".into());
+        let cache = path.join(".cache").join("demarc");
         let system = cache.join("system");
         if !system.exists() {
             std::fs::create_dir_all(&cache).expect("Failed to create demarc cache directory");
@@ -382,14 +381,16 @@ fn setup_retro(world: &mut World) {
 }
 
 fn exe_dir() -> Option<PathBuf> {
-    std::env::current_exe().ok()
-    .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
 }
 
 fn get_core(sytem_type: SystemType) -> Result<PathBuf, &'static str> {
-    let search_path: Vec<PathBuf> = vec!["libretro".into(), exe_dir().unwrap_or(".".into()), "/usr/lib/libretro".into(),
-    
-    
+    let search_path: Vec<PathBuf> = vec![
+        "libretro".into(),
+        exe_dir().unwrap_or(".".into()),
+        "/usr/lib/libretro".into(),
     ];
 
     let core_name = match sytem_type {

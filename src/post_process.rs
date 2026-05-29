@@ -51,7 +51,7 @@ impl Plugin for PostProcessPlugin {
         load_internal_asset!(
             app,
             LOTTES_SHADER_HANDLE,
-            "../assets/shaders/lottes.wgsl",
+            "../system/shaders/lottes.wgsl",
             Shader::from_wgsl
         );
 

@@ -1,5 +1,4 @@
 use anyhow::Result;
-use anyhow::bail;
 use tracing::info;
 
 use std::{
@@ -16,7 +15,6 @@ pub enum SystemType {
     AtariST,
     #[default]
     Unknown,
-    UnknownM3U,
 }
 
 pub fn get_system_type(path: &Path) -> SystemType {
@@ -34,14 +32,7 @@ pub fn get_system_type(path: &Path) -> SystemType {
     };
     if system_type == SystemType::Unknown {
         info!("Checking {:?}", path);
-        if path.is_dir() {
-            // if is_self_booting_dir(path) {
-            //     system_type = SystemType::Amiga;
-            // } else {
-            //     //if find_file(&path, ".slave") {
-            //     system_type = SystemType::Amiga;
-            // }
-        } else {
+        if path.is_file() {
             let Ok(data) = fs::read(path) else {
                 return SystemType::Unknown;
             };
@@ -126,62 +117,22 @@ pub struct GameInfo {
     pub year: String,
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum FileType {
-    M3U,
-    Image,
-    Unknown,
+// let matches = path
+//     .file_name()
+//     .and_then(|n| n.to_str())
+//     .is_some_and(|n| n.to_lowercase().contains(&name.to_lowercase()));
+fn has_matching(dir: &Path, name: &str) -> Option<PathBuf> {
+    std::fs::read_dir(dir).ok()?.flatten().find_map(|e| {
+        let path = e.path();
+        let matches = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.to_lowercase().contains(&name.to_lowercase()));
+        matches.then_some(path)
+    })
 }
 
-fn get_info(game: &Path, tags: &mut HashMap<String, String>) -> (GameInfo, SystemType, FileType) {
-    let mut title: String = "".into();
-    let mut group: String = "".into();
-    let mut year: String = "".into();
-    //  let mut tags = HashMap::new();
-    let mut system_type = SystemType::Unknown;
-    let mut file_type = FileType::Unknown;
-    if let Some(ext) = game.extension()
-        && ext == "m3u"
-    {
-        file_type = FileType::M3U;
-        let m3u = parse_m3u(game).unwrap();
-        info!("{:?}", m3u.tags);
-        if let Some(t) = m3u.tags.get("title") {
-            title = t.clone();
-        }
-        if let Some(t) = m3u.tags.get("group") {
-            group = t.clone();
-        }
-        if let Some(t) = m3u.tags.get("year") {
-            year = t.clone();
-        }
-        for (key, val) in m3u.tags {
-            if key.starts_with("vice_") || key.starts_with("puae_") {
-                //warn!("Insert {key} {val}");
-                tags.insert(key, val);
-            }
-        }
-        if let Some(path) = m3u.files.first() {
-            let real_path = game.parent().unwrap().join(path);
-            system_type = get_system_type(&real_path);
-        }
-        if system_type == SystemType::Unknown {
-            system_type = SystemType::UnknownM3U;
-        }
-    } else {
-        system_type = get_system_type(game);
-        if system_type != SystemType::Unknown {
-            file_type = FileType::Image;
-        }
-        title = game.file_name().unwrap().to_string_lossy().to_string();
-    }
-    (GameInfo { title, group, year }, system_type, file_type)
-}
-
-/// Find a direct child of `dir` whose name matches `name` case-insensitively.
-/// Amiga volumes are case-insensitive, so a host directory meant to act as one
-/// may use any casing (e.g. `S/Startup-Sequence`).
-fn find_child_ci(dir: &Path, name: &str) -> Option<PathBuf> {
+fn find_child(dir: &Path, name: &str) -> Option<PathBuf> {
     std::fs::read_dir(dir).ok()?.flatten().find_map(|e| {
         let path = e.path();
         let matches = path
@@ -193,10 +144,8 @@ fn find_child_ci(dir: &Path, name: &str) -> Option<PathBuf> {
 }
 
 /// True if `game` is a directory containing an `s/startup-sequence` boot script,
-/// i.e. it can boot on its own as a hard drive without the WHDLoad helper.
 fn is_self_booting_dir(game: &Path) -> bool {
-    find_child_ci(game, "s")
-        .is_some_and(|s_dir| find_child_ci(&s_dir, "startup-sequence").is_some())
+    find_child(game, "s").is_some_and(|s_dir| find_child(&s_dir, "startup-sequence").is_some())
 }
 
 /// Build a bootable Atari ST FAT12 floppy image containing an `AUTO` directory
@@ -209,9 +158,6 @@ fn build_atari_auto_disk(data: &[u8]) -> Result<PathBuf> {
     let target_dir = tempfile::Builder::new().prefix("demarc-").tempdir()?.keep();
     let img_path = target_dir.join("disk.st");
 
-    // Standard 720K double-sided/double-density Atari ST floppy. fatfs needs
-    // read access too (it reads back the boot sector while formatting/mounting),
-    // so open read+write rather than `File::create` (which is write-only).
     let img = fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -219,10 +165,6 @@ fn build_atari_auto_disk(data: &[u8]) -> Result<PathBuf> {
         .truncate(true)
         .open(&img_path)?;
     img.set_len(720 * 1024)?;
-    // Atari TOS is picky about the BIOS Parameter Block: it expects the
-    // canonical 720K floppy geometry. fatfs' PC defaults (media 0xF8, 64 heads,
-    // 32 sectors/track, 512 root entries) produce a disk TOS won't mount. These
-    // values match a known-good Atari image (and yield 3 sectors/FAT for FAT12).
     fatfs::format_volume(
         &img,
         fatfs::FormatVolumeOptions::new()
@@ -251,80 +193,141 @@ fn build_atari_auto_disk(data: &[u8]) -> Result<PathBuf> {
 
     Ok(img_path)
 }
-/// Options
-/// - Vaild M3u (for System) with tags
-/// - Metadata only M3U (Unknown system) with tags-> Redirect to parent
-/// - Direct file, no meta data, with tags
-pub fn handle_file(in_path: &Path, tags: &HashMap<String, String>) -> Result<WorkingFile> {
-    let mut path = in_path.to_owned();
-    let mut settings = tags.clone();
-    let mut is_temp = false;
-    if !path.exists() {
-        bail!("No such file");
-    }
-    info!("HANDLE {in_path:?}");
-    let (game_info, mut system_type, file_type) = get_info(in_path, &mut settings);
 
-    if system_type == SystemType::UnknownM3U {
-        path = path.parent().unwrap().to_owned();
-    }
-    if file_type != FileType::M3U || system_type == SystemType::UnknownM3U {
-        if path.is_dir() {
-            if is_self_booting_dir(&path) {
-                system_type = SystemType::Amiga;
-                settings.insert("puae_use_whdload".into(), "disabled".into());
-            } else {
-                //if find_file(&path, ".slave") {
-                system_type = SystemType::Amiga;
-                settings.insert("puae_model".into(), "A1200".into());
-                settings.insert("puae_use_whdload".into(), "esabled".into());
-            }
+fn handle_release(in_path: &Path, tags: &HashMap<String, String>) -> Result<WorkingFile> {
+    let mut system_type = get_system_type(in_path);
+    let mut path = in_path.to_owned();
+    let mut tags = tags.clone();
+    let mut is_temp = false;
+    let game_info = GameInfo {
+        title: path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
+        ..Default::default()
+    };
+
+    if path.is_dir() {
+        if is_self_booting_dir(&path) {
+            system_type = SystemType::Amiga;
+            tags.insert("puae_use_whdload".into(), "disabled".into());
         } else {
-            let data = fs::read(&path)?;
-            if data.len() >= 2 && data[0..2] == [0x60, 0x1a] {
-                // GEMDOS executable: wrap it in a bootable Atari ST floppy image
-                // with the program in the AUTO folder so it runs on boot.
-                path = build_atari_auto_disk(&data)?;
-                is_temp = true;
-                system_type = SystemType::AtariST;
-            } else if data.len() >= 2 && data[0..2] == [0x01, 0x08] {
-                system_type = SystemType::C64;
-            } else if data.len() >= 4 && data[0..4] == [0x00, 0x00, 0x03, 0xF3] {
-                let target_dir = tempfile::Builder::new().prefix("demarc-").tempdir()?.keep();
-                let s_dir = target_dir.join("s");
-                fs::create_dir(&s_dir)?;
-                fs::write(s_dir.join("startup-sequence"), "amiga_file\n")?;
-                fs::copy(&path, target_dir.join("amiga_file"))?;
-                if std::fs::metadata(&path)?.len() > 850 * 1024 {
-                    settings.insert("puae_model".into(), "A1200".into());
-                }
-                path = target_dir;
-                is_temp = true;
-                settings.insert("puae_use_whdload".into(), "disabled".into());
+            if has_matching(&path, ".slave").is_some() {
                 system_type = SystemType::Amiga;
+                tags.insert("puae_model".into(), "A1200".into());
+                tags.insert("puae_use_whdload".into(), "enabled".into());
+            }
+            for f in fs::read_dir(&path)? {
+                let f = f?;
+                let t = get_system_type(&f.path());
+                if t != SystemType::Unknown {
+                    path = f.path();
+                    system_type = t;
+                    break;
+                }
             }
         }
-    }
-    info!("LOADING {:?} {:?}", path, settings);
+    } else {
+        let data = fs::read(&path)?;
+        if data.len() >= 2 && data[0..2] == [0x60, 0x1a] {
+            // GEMDOS executable: wrap it in a bootable Atari ST floppy image
+            // with the program in the AUTO folder so it runs on boot.
+            path = build_atari_auto_disk(&data)?;
+            is_temp = true;
+            system_type = SystemType::AtariST;
+        } else if data.len() >= 2 && data[0..2] == [0x01, 0x08] {
+            system_type = SystemType::C64;
+        } else if data.len() >= 4 && data[0..4] == [0x00, 0x00, 0x03, 0xF3] {
+            let target_dir = tempfile::Builder::new().prefix("demarc-").tempdir()?.keep();
+            let s_dir = target_dir.join("s");
+            fs::create_dir(&s_dir)?;
+            fs::write(s_dir.join("startup-sequence"), "amiga_file\n")?;
+            fs::copy(&path, target_dir.join("amiga_file"))?;
+            if std::fs::metadata(&path)?.len() > 850 * 1024 {
+                tags.insert("puae_model".into(), "A1200".into());
+            }
+            path = target_dir;
+            is_temp = true;
+            tags.insert("puae_use_whdload".into(), "disabled".into());
+            system_type = SystemType::Amiga;
+        }
+    };
     Ok(WorkingFile {
         system_type,
         path,
-        settings,
+        settings: tags,
         game_info,
         is_temp,
     })
 }
 
+fn handle_m3u(in_path: &Path, tags: &HashMap<String, String>) -> Result<WorkingFile> {
+    let mut title: String = "".into();
+    let mut group: String = "".into();
+    let mut year: String = "".into();
+    let mut system_type = SystemType::Unknown;
+    let mut tags = tags.clone();
+    let m3u = parse_m3u(in_path).unwrap();
+    info!("{:?}", m3u.tags);
+    if let Some(t) = m3u.tags.get("title") {
+        title = t.clone();
+    }
+    if let Some(t) = m3u.tags.get("group") {
+        group = t.clone();
+    }
+    if let Some(t) = m3u.tags.get("year") {
+        year = t.clone();
+    }
+    for (key, val) in m3u.tags {
+        if key.starts_with("vice_") || key.starts_with("puae_") {
+            //warn!("Insert {key} {val}");
+            tags.insert(key, val);
+        }
+    }
+
+    if m3u.files.is_empty() {
+        return handle_release(in_path.parent().unwrap(), &tags);
+    }
+
+    if let Some(path) = m3u.files.first() {
+        let real_path = in_path.parent().unwrap().join(path);
+        system_type = get_system_type(&real_path);
+    }
+
+    let game_info = GameInfo { title, group, year };
+
+    Ok(WorkingFile {
+        system_type,
+        path: in_path.to_owned(),
+        settings: tags,
+        game_info,
+        is_temp: false,
+    })
+}
+
+/// Options
+/// - Vaild M3u (for System) with tags
+/// - Metadata only M3U (Unknown system) with tags-> Redirect to parent
+/// - Direct file, no meta data, with tags
+pub fn handle_file(in_path: &Path, tags: &HashMap<String, String>) -> Result<WorkingFile> {
+    if let Some(ext) = in_path.extension()
+        && ext == "m3u"
+    {
+        handle_m3u(in_path, tags)
+    } else {
+        handle_release(in_path, tags)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn amiga_exe() {
-        let assets = Path::new("assets").to_owned();
-        let mut wf = handle_file(&assets.join("lemon.exe"), &HashMap::new()).unwrap();
-
-        assert_eq!(wf.system_type, SystemType::Amiga);
+    fn atari_exe() {
+        let assets = Path::new("demos").to_owned();
+        let wf = handle_file(&assets.join("natrium.prg"), &HashMap::new()).unwrap();
+        assert_eq!(wf.system_type, SystemType::AtariST);
         println!("{:?}", wf);
     }
 }

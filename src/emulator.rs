@@ -418,7 +418,7 @@ impl Emulator {
 
         let p = self.producer.lock().unwrap();
 
-        info!(
+        trace!(
             "FRAME FPS {}/{} = {} : t={} AUDIO {}",
             _fps,
             self.display_fps,

@@ -46,14 +46,25 @@ const CORE_NAME_ATARI: &str = "hatari_libretro";
 /// build time. Extracted to the user's cache dir on first run.
 const SYSTEM_ZIP: &[u8] = include_bytes!("../system.zip");
 
-/// Path to the extracted `system` directory.
+/// Path to the `system` directory.
 ///
-/// On first call, the embedded [`SYSTEM_ZIP`] is unpacked into
-/// `~/.cache/demarc` (creating `~/.cache/demarc/system`) unless it already
-/// exists. The result is cached so extraction happens at most once per run.
+/// In debug builds, if a `system/` directory exists in the current working
+/// directory it is used as-is (so local edits are picked up without
+/// re-bundling). Otherwise, on first call the embedded [`SYSTEM_ZIP`] is
+/// unpacked into `~/.cache/demarc` (creating `~/.cache/demarc/system`) unless
+/// it already exists. The result is cached so extraction happens at most once
+/// per run.
 pub fn system_dir() -> &'static Path {
     static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     DIR.get_or_init(|| {
+        // In debug builds, prefer a `system/` directory next to where we're run
+        // from, so local edits to BIOS/config are picked up without re-bundling.
+        if cfg!(debug_assertions) {
+            let local = PathBuf::from("system");
+            if local.is_dir() {
+                return local;
+            }
+        }
         let path = ["XDG_CACHE_HOME", "HOME", "HOMEPATH"]
             .iter()
             .find_map(|var| std::env::var_os(var).map(PathBuf::from))

@@ -22,12 +22,12 @@ const WARP_Y: f32 = 0.0;
 const MASK_DARK: f32 = 0.5;
 const MASK_LIGHT: f32 = 1.5;
 const SCALE_IN_LINEAR_GAMMA: f32 = 1.0;
-const SHADOW_MASK: f32 = 3.0;
+const SHADOW_MASK: f32 = 2.0;
 const BRIGHT_BOOST: f32 = 1.0;
 const HARD_BLOOM_PIX: f32 = -1.5;
-const HARD_BLOOM_SCAN: f32 = -2.0;
-const BLOOM_AMOUNT: f32 = 0.25;
-const SHAPE: f32 = 2.0;
+const HARD_BLOOM_SCAN: f32 = -4.0;
+const BLOOM_AMOUNT: f32 = 0.15;
+const SHAPE: f32 = 1.5;
 
 fn to_linear1(c: f32) -> f32 {
     if SCALE_IN_LINEAR_GAMMA == 0.0 {

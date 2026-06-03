@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tracing::info;
+use tracing::{debug, info};
 
 use std::{
     collections::HashMap,
@@ -218,17 +218,21 @@ fn handle_release(in_path: &Path, tags: &HashMap<String, String>) -> Result<Work
                 tags.insert("puae_model".into(), "A1200".into());
                 tags.insert("puae_use_whdload".into(), "enabled".into());
             }
+            debug!("Checking");
             for f in fs::read_dir(&path)? {
                 let f = f?;
                 let t = get_system_type(&f.path());
                 if t != SystemType::Unknown {
+                    debug!("Found {t:?}");
                     path = f.path();
                     system_type = t;
                     break;
                 }
             }
         }
-    } else {
+    }
+
+    if !path.is_dir() {
         let data = fs::read(&path)?;
         if data.len() >= 2 && data[0..2] == [0x60, 0x1a] {
             // GEMDOS executable: wrap it in a bootable Atari ST floppy image
@@ -280,14 +284,17 @@ fn handle_m3u(in_path: &Path, tags: &HashMap<String, String>) -> Result<WorkingF
         year = t.clone();
     }
     for (key, val) in m3u.tags {
-        if key.starts_with("vice_") || key.starts_with("puae_") {
-            //warn!("Insert {key} {val}");
+        if key.starts_with("vice_") || key.starts_with("puae_") || key.starts_with("hatari_") {
             tags.insert(key, val);
         }
     }
 
     if m3u.files.is_empty() {
-        return handle_release(in_path.parent().unwrap(), &tags);
+        let mut wf = handle_release(in_path.parent().unwrap(), &tags)?;
+        wf.game_info.title = title;
+        wf.game_info.group = group;
+        wf.game_info.year = year;
+        return Ok(wf);
     }
 
     if let Some(path) = m3u.files.first() {

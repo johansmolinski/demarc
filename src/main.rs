@@ -1,5 +1,4 @@
 #![allow(dead_code, clippy::too_many_arguments, clippy::type_complexity)]
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use bevy::render::extract_resource::ExtractResource;
@@ -26,7 +25,6 @@ use hud::HudPlugin;
 use post_process::{BorderMode, PostProcessPlugin, ScaleMode};
 use retro::{RetroPlugin, system_dir};
 use screensaver::ScreenSaverPlugin;
-use tracing::Level;
 use tracing_subscriber::EnvFilter;
 
 const STYLES: Styles = Styles::styled()
@@ -194,17 +192,15 @@ fn main() {
             games.push(game);
         }
     }
-    args.files = games.clone();
-
     if args.shuffle {
         use rand::seq::SliceRandom;
-        args.files.shuffle(&mut rand::rng());
+        games.shuffle(&mut rand::rng());
     }
 
     let multiple = args.files.len() > 1;
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         EnvFilter::new(if cfg!(debug_assertions) {
-            "demarc=info,warn"
+            "demarc=debug,warn"
         } else {
             "error"
         })

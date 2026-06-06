@@ -54,7 +54,7 @@ If you installed retroarch you may have libs available in /usr/lib/libretro
 
 ## SHORTCUTS
 
-_Right Alt_ +
+_Right Alt_ / _Right Ctrl_ +
 ```
 D = Swap disk
 N = Next file
@@ -64,10 +64,11 @@ I = Toggle Info
 P = Screenshot
 R = Reset
 C = Toggle CRT filter
+M = Click mouse
 
 For grid:
 
-TAB = Next emulator
+TAB/SHIFT-TAB = Next/Prev emulator
 ENTER = Maximize/Unmazimize
 A = Select all emulators
 

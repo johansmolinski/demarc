@@ -1,7 +1,6 @@
 #![allow(dead_code, clippy::too_many_arguments, clippy::type_complexity)]
 use std::path::{Path, PathBuf};
 
-use bevy::ecs::entity::EntityIndex;
 use bevy::render::extract_resource::ExtractResource;
 use bevy::window::{PrimaryWindow, WindowMode};
 use bevy::{prelude::*, window::PresentMode};
@@ -229,6 +228,7 @@ struct AppSettings {
     all_emus: bool,
     last_draw: f64,
     text_list: Option<Entity>,
+    hotkey_pressed: f32,
 }
 
 /// Recursively collect all `.m3u` files under `dir` into `out`.

@@ -55,7 +55,6 @@ fn spawn_toast(
     window: Single<&mut Window, With<PrimaryWindow>>,
 ) {
     let font = asset_server.load("font.ttf");
-    warn!("SIZE {} {}", window.physical_width(), window.width());
     let font_size = window.physical_width() as f32 / 50.0;
     for msg in reader.read() {
         if let Some(hud_text) = state.current_texts.get(&msg.location) {
@@ -110,7 +109,7 @@ fn spawn_toast(
                         font_size,
                         ..default()
                     },
-                    RelativeTextSize { fraction: 0.05 },
+                    RelativeTextSize { fraction: 0.07 },
                     TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
                     TextLayout {
                         justify: Justify::Right,
@@ -156,9 +155,10 @@ fn spawn_toast(
                     Text::new(&msg.text),
                     TextFont {
                         font: font.clone(),
-                        font_size: 64.0,
+                        font_size: 32.0,
                         ..default()
                     },
+                    RelativeTextSize { fraction: 0.04 },
                     TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
                     TextLayout {
                         justify: Justify::Right,
@@ -180,7 +180,7 @@ fn spawn_toast(
                     Text::new(&msg.text),
                     TextFont {
                         font: font.clone(),
-                        font_size: 64.0,
+                        font_size: 72.0,
                         ..default()
                     },
                     TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
@@ -252,8 +252,8 @@ impl TextList {
                             row_gap: Val::Px(4.0),
                             ..default()
                         },
-                        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.6)),
-                        BorderColor::all(Color::srgba(1.0, 1.0, 1.0, 0.8)),
+                        BackgroundColor(Color::linear_rgba(0.0, 0.0, 0.0, 0.9)),
+                        BorderColor::all(Color::linear_rgba(1.0, 1.0, 1.0, 0.9)),
                         TextList {
                             items,
                             visible_count,
@@ -267,7 +267,7 @@ impl TextList {
                                 Text::new(""),
                                 TextFont {
                                     font: font.clone(),
-                                    font_size: 32.0,
+                                    font_size: 22.0,
                                     ..default()
                                 },
                                 TextColor(Color::WHITE),
@@ -282,7 +282,15 @@ impl TextList {
     }
 }
 
-fn update_keys(input: Res<ButtonInput<KeyCode>>, mut lists: Query<&mut TextList>) {
+#[derive(Message)]
+pub struct TextListSelect(pub usize);
+
+fn update_keys(
+    input: Res<ButtonInput<KeyCode>>,
+    mut lists: Query<&mut TextList>,
+    mut writer: MessageWriter<TextListSelect>,
+) {
+    let _ = writer;
     for mut list in &mut lists {
         if list.controlled {
             if input.just_pressed(KeyCode::ArrowUp) && list.selected > 0 {
@@ -290,6 +298,9 @@ fn update_keys(input: Res<ButtonInput<KeyCode>>, mut lists: Query<&mut TextList>
             }
             if input.just_pressed(KeyCode::ArrowDown) && list.selected < (list.items.len() - 1) {
                 list.selected += 1;
+            }
+            if input.just_pressed(KeyCode::Enter) {
+                writer.write(TextListSelect(list.selected));
             }
         }
     }
@@ -304,7 +315,6 @@ fn update_text_list(
     mut rows: Query<(&TextListRow, &mut Text, &mut BackgroundColor)>,
 ) {
     for (mut list, children) in &mut lists {
-        info!("CHANGED");
         // Scroll so the selected item is within the visible window.
         if list.visible_count > 0 {
             if list.selected < list.scroll_position {
@@ -340,6 +350,7 @@ impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SetHudText>()
             .insert_resource(HudState::default())
+            .add_message::<TextListSelect>()
             .add_systems(
                 Update,
                 (

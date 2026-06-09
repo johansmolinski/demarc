@@ -44,6 +44,10 @@ fn update_relative_text_size(
     for event in resize_events.read() {
         for (rel, mut text_font) in &mut query {
             text_font.font_size = event.height * rel.fraction;
+            info!(
+                "{} x {} => {}",
+                event.height, rel.fraction, text_font.font_size
+            );
         }
     }
 }
@@ -55,8 +59,8 @@ fn spawn_toast(
     window: Single<&mut Window, With<PrimaryWindow>>,
 ) {
     let font = asset_server.load("font.ttf");
-    let fraction = 0.075;
-    let font_size = window.physical_height() as f32 * fraction;
+    let fraction = 0.05;
+    let font_size = window.height() * fraction;
     for msg in reader.read() {
         if let Some(hud_text) = state.current_texts.get(&msg.location) {
             commands.entity(*hud_text).despawn();
@@ -156,11 +160,11 @@ fn spawn_toast(
                     Text::new(&msg.text),
                     TextFont {
                         font: font.clone(),
-                        font_size: font_size * 0.5,
+                        font_size: font_size * 0.7,
                         ..default()
                     },
                     RelativeTextSize {
-                        fraction: fraction * 0.5,
+                        fraction: fraction * 0.7,
                     },
                     TextColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
                     TextLayout {
@@ -230,6 +234,7 @@ impl TextList {
         font: Handle<Font>,
         items: Vec<String>,
         visible_count: usize,
+        width: f32,
     ) -> Entity {
         // Full-screen container that centers the content-sized box; the returned
         // entity is the box itself (the one carrying `TextList`).
@@ -250,6 +255,7 @@ impl TextList {
                     .spawn((
                         Node {
                             flex_direction: FlexDirection::Column,
+                            width: Val::Px(width),
                             padding: UiRect::all(Val::Px(16.0)),
                             border: UiRect::all(Val::Px(2.0)),
                             row_gap: Val::Px(4.0),

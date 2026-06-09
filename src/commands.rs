@@ -90,6 +90,7 @@ const HOTKEYS: &[KeyMapping] = &[
     KeyMapping::new(KeyCode::KeyB, "Toggle border stretch", Cmd::ToggleBorder),
     KeyMapping::new(KeyCode::KeyP, "Pause/Resume", Cmd::PauseResume),
     KeyMapping::new(KeyCode::KeyM, "Click Left mouse button", Cmd::MouseClick),
+    KeyMapping::new(KeyCode::KeyF, "Toggle fullscreen", Cmd::Fullscreen),
     KeyMapping::new(
         KeyCode::KeyJ,
         "Toggle Joystick/Keyboard cursor keys",
@@ -106,7 +107,8 @@ const HOTKEYS: &[KeyMapping] = &[
         Cmd::Maximize,
     ),
     KeyMapping::new(KeyCode::Tab, "Next emulator", Cmd::NextEmu),
-    KeyMapping::shifted(KeyCode::Tab, "Previous emulator fullscreen", Cmd::PrevEmu),
+    KeyMapping::shifted(KeyCode::Tab, "Previous emulator", Cmd::PrevEmu),
+    KeyMapping::new(KeyCode::KeyA, "Toggle all", Cmd::ToggleAll),
     KeyMapping::shifted(
         KeyCode::KeyN,
         "Next file in all emulators",
@@ -172,7 +174,7 @@ fn handle_textlist(
                         }
                     })
                     .collect::<Vec<_>>();
-                let entity = TextList::spawn(&mut commands, font, lines, 8);
+                let entity = TextList::spawn(&mut commands, font, lines, 8, 500.0);
                 settings.text_list = Some(entity);
             }
         }

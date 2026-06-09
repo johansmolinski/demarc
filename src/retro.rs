@@ -46,7 +46,7 @@ pub fn system_dir() -> &'static Path {
         let cache = dirs::cache_dir().unwrap_or_default().join("demarc");
         info!("CACHE {cache:?}");
         let system = cache.join("system");
-        if !system.exists() || !system.join(".v1").exists() {
+        if !system.exists() || !system.join(".v2").exists() {
             std::fs::create_dir_all(&cache).expect("Failed to create demarc cache directory");
             let mut archive = zip::ZipArchive::new(std::io::Cursor::new(SYSTEM_ZIP))
                 .expect("Failed to read embedded system.zip");
@@ -407,6 +407,9 @@ fn run_retro(
 ) {
     let shift = input.pressed(KeyCode::ShiftLeft) || input.pressed(KeyCode::ShiftRight);
     let hot_key = input.pressed(KeyCode::AltRight) || input.pressed(KeyCode::ControlRight);
+    if hot_key {
+        settings.last_draw = time.elapsed_secs_f64();
+    }
 
     let cmd = if hot_key { check_hotkey(&input) } else { None };
 
@@ -414,7 +417,6 @@ fn run_retro(
         settings.hotkey_pressed = 0.0;
         cmd_writer.write(CmdMessage(cmd, shift));
     }
-    settings.last_draw = time.elapsed_secs_f64();
 
     for (i, mut emu) in &mut emus.iter_mut().enumerate() {
         let Some(image) = images.get_mut(&emu.image) else {

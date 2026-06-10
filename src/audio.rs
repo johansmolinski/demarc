@@ -187,7 +187,7 @@ pub fn init_audio_stream(mut consumer: HeapCons<f32>) -> Result<(f32, cpal::Stre
 
     let target = SampleRate(48000);
 
-    let config = device
+    let supported = device
         .supported_output_configs()?
         .find(|c| {
             c.channels() == 2
@@ -195,16 +195,31 @@ pub fn init_audio_stream(mut consumer: HeapCons<f32>) -> Result<(f32, cpal::Stre
                 && c.min_sample_rate() <= target
         })
         .expect("no supported config");
-    let sample_rate = target.min(config.max_sample_rate());
-    let config = config.with_sample_rate(sample_rate);
-    let mut config: StreamConfig = config.into();
+    let sample_rate = target.min(supported.max_sample_rate());
+
+    // We continuously adjust the resample ratio based on how full the ring
+    // buffer is, so a small buffer is desirable for tight feedback. Prefer 2048
+    // frames, but clamp into the device's advertised range: if the smallest
+    // supported buffer is larger than 2048 we take that (the lowest supported),
+    // and if the range is unknown we let the backend choose. cpal's CoreAudio
+    // backend rejects out-of-range fixed sizes with `StreamConfigNotSupported`,
+    // so this clamp is what keeps macOS happy.
+    const PREFERRED_BUFFER: u32 = 2048;
+    let buffer_size = match supported.buffer_size() {
+        cpal::SupportedBufferSize::Range { min, max } => {
+            cpal::BufferSize::Fixed(PREFERRED_BUFFER.clamp(*min, *max))
+        }
+        cpal::SupportedBufferSize::Unknown => cpal::BufferSize::Default,
+    };
+
+    let mut config: StreamConfig = supported.with_sample_rate(sample_rate).into();
+    config.channels = 2;
+    config.buffer_size = buffer_size;
 
     info!(
-        "cpal cfg: rate={} channels={}",
-        config.sample_rate.0, config.channels
+        "cpal cfg: rate={} channels={} buffer={:?}",
+        config.sample_rate.0, config.channels, config.buffer_size
     );
-    config.channels = 2;
-    config.buffer_size = cpal::BufferSize::Fixed(2048);
 
     let stream = device.build_output_stream(
         &config,

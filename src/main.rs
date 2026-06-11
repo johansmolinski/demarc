@@ -87,9 +87,13 @@ struct Args {
     #[arg(long)]
     ste: bool,
 
-    /// Amiga: Force high specs (68030 + FPU + 128MB Z3 RAM)
+    /// Amiga: Force high specs (68030 + FPU)
     #[arg(long)]
-    high: bool,
+    fast: bool,
+
+    /// Amiga: add extra memory
+    #[arg(long)]
+    xmem: bool,
 
     /// C64: Always use JiffyDOS to load
     /// Amiga: Turn off disk rotation emulation

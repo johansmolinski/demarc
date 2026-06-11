@@ -144,7 +144,13 @@ fn setup_retro(world: &mut World) {
         set_var("hatari_ramsize", "2");
     }
 
-    if args.high {
+    if args.xmem {
+        set_var("hatari_ramsize", "8");
+        set_var("puae_z3mem_size", "128");
+        set_var("puae_chipmem_size", "4");
+        set_var("puae_fastmem_size", "8");
+    }
+    if args.fast {
         set_var("hatari_ramsize", "8");
         set_var("puae_z3mem_size", "128");
         set_var("puae_fpu_model", "68882");

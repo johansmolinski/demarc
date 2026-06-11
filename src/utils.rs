@@ -470,4 +470,13 @@ mod tests {
         assert_eq!(wf.system_type, SystemType::AtariST);
         println!("{:?}", wf);
     }
+
+    #[test]
+    fn amiga_dir() {
+        let assets = Path::new("demos").to_owned();
+        let wf = handle_file(&assets.join("o2-intro"), &HashMap::new()).unwrap();
+        println!("{:?}", wf);
+        assert_eq!(wf.system_type, SystemType::Amiga);
+        assert!(wf.path.join("s").join("startup-sequence").exists());
+    }
 }

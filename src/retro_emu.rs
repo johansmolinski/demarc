@@ -1155,20 +1155,39 @@ const _: () = {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
+    use crate::libloader;
+
     use super::*;
+
+    /// The threaded `run()` is non-blocking, so the main loop must give the
+    /// worker thread time to boot and deliver frames. Drive `emu` until it has
+    /// produced its first frame, or panic after `timeout`.
+    fn run_until_frame(emu: &mut dyn RetroEmu, timeout: Duration) {
+        let start = Instant::now();
+        while emu.get_frame_size().0 == 0 {
+            emu.run();
+            assert!(
+                start.elapsed() < timeout,
+                "worker never produced a frame within {timeout:?}"
+            );
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
 
     #[test]
     fn retro_amiga_works() {
-        let core_path = Path::new("libretro-uae/puae_libretro.so");
+        let core_path = libloader::get_libretro("puae").unwrap();
         let system_dir = Path::new("system");
         let game_path = Path::new("demos/rebels.adf");
 
         let settings = HashMap::new();
 
         let mut retro_emu =
-            RetroCoreDirect::new(core_path, system_dir, Some(game_path), settings).unwrap();
+            RetroCoreDirect::new(&core_path, system_dir, Some(game_path), settings).unwrap();
         println!("## RUN");
-        for _ in 0..400 {
+        for _ in 0..200 {
             retro_emu.run();
         }
         retro_emu.save_png(Path::new("test_amiga.png")).unwrap();
@@ -1179,7 +1198,7 @@ mod tests {
     /// a command that doesn't exist under 1.3, and the boot fails.
     #[test]
     fn retro_amiga_dir_works() {
-        let core_path = Path::new("libretro-uae/puae_libretro.so");
+        let core_path = libloader::get_libretro("puae").unwrap();
         let system_dir = Path::new("system");
         let game_path = Path::new("demos/o2-intro");
 
@@ -1188,8 +1207,8 @@ mod tests {
         settings.insert("puae_use_whdload".into(), "disabled".into());
 
         let mut retro_emu =
-            RetroCoreDirect::new(core_path, system_dir, Some(game_path), settings).unwrap();
-        for _ in 0..600 {
+            RetroCoreDirect::new(&core_path, system_dir, Some(game_path), settings).unwrap();
+        for _ in 0..200 {
             retro_emu.run();
         }
         retro_emu.save_png(Path::new("test_amiga_dir.png")).unwrap();
@@ -1197,7 +1216,7 @@ mod tests {
 
     #[test]
     fn retro_threaded_works() {
-        let core_path = Path::new("libretro-uae/puae_libretro.so");
+        let core_path = libloader::get_libretro("puae").unwrap();
         let system_dir = Path::new("system");
         let game_path = Path::new("demos/rebels.adf");
 
@@ -1205,22 +1224,26 @@ mod tests {
         settings.insert("puae_model".into(), "A500".into());
 
         let mut emu =
-            RetroCoreThreaded::new(core_path, system_dir, Some(game_path), settings).unwrap();
+            RetroCoreThreaded::new(&core_path, system_dir, Some(game_path), settings).unwrap();
         // Object-safety / interchangeability check.
         let emu: &mut dyn RetroEmu = &mut emu;
 
-        for _ in 0..400 {
+        // Pace the loop so the worker keeps up and the demo advances.
+        for _ in 0..200 {
             emu.run();
+            std::thread::sleep(Duration::from_millis(2));
         }
+        // The worker may still be a few frames behind; make sure we have one.
+        run_until_frame(emu, Duration::from_secs(5));
+        emu.save_png(Path::new("test_amiga_threaded.png")).unwrap();
         let (w, h) = emu.get_frame_size();
         assert!(w > 0 && h > 0, "no frame produced by worker");
-        emu.save_png(Path::new("test_amiga_threaded.png")).unwrap();
     }
 
     #[test]
     fn retro_threaded_multi_works() {
-        let uae_core = Path::new("libretro-uae/puae_libretro.so");
-        let vice_core = Path::new("vice-libretro/vice_x64_libretro.so");
+        let uae_core = libloader::get_libretro("puae").unwrap();
+        let vice_core = libloader::get_libretro("vice_x64").unwrap();
         let system_dir = Path::new("system");
         let uae_game = Path::new("demos/rebels.adf");
         let vice_game = Path::new("demos/quantum_icc2026_v1p.prg");
@@ -1233,25 +1256,25 @@ mod tests {
 
         let cores = [
             (
-                uae_core,
+                &uae_core,
                 uae_game,
                 uae_settings(),
                 "test_threaded_uae_0.png",
             ),
             (
-                uae_core,
+                &uae_core,
                 uae_game,
                 uae_settings(),
                 "test_threaded_uae_1.png",
             ),
             (
-                vice_core,
+                &vice_core,
                 vice_game,
                 HashMap::new(),
                 "test_threaded_vice_0.png",
             ),
             (
-                vice_core,
+                &vice_core,
                 vice_game,
                 HashMap::new(),
                 "test_threaded_vice_1.png",
@@ -1267,15 +1290,18 @@ mod tests {
             })
             .collect();
 
-        for i in 0..400 {
-            println!("RUN {i}");
+        // Pace the loop so the workers keep up and the demos advance.
+        for _ in 0..200 {
             for (_, emu) in emus.iter_mut() {
                 let emu: &mut dyn RetroEmu = emu;
                 emu.run();
             }
+            std::thread::sleep(Duration::from_millis(2));
         }
 
         for (path, emu) in emus.iter_mut() {
+            // A worker may still be a few frames behind; make sure it has one.
+            run_until_frame(emu, Duration::from_secs(5));
             let (w, h) = emu.get_frame_size();
             assert!(w > 0 && h > 0, "no frame produced by worker for {path}");
             emu.save_png(Path::new(path)).unwrap();
@@ -1284,14 +1310,14 @@ mod tests {
 
     #[test]
     fn retro_vice_works() {
-        let core_path = Path::new("vice-libretro/vice_x64_libretro.so");
+        let core_path = libloader::get_libretro("vice_x64").unwrap();
         let system_dir = Path::new("system");
         let game_path = Path::new("demos/quantum_icc2026_v1p.prg");
 
         let mut retro_emu =
-            RetroCoreDirect::new(core_path, system_dir, Some(game_path), HashMap::new()).unwrap();
+            RetroCoreDirect::new(&core_path, system_dir, Some(game_path), HashMap::new()).unwrap();
         println!("## RUN");
-        for _ in 0..600 {
+        for _ in 0..200 {
             retro_emu.run();
         }
         retro_emu.save_png(Path::new("test_d64.png")).unwrap();

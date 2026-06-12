@@ -29,6 +29,9 @@ const CORE_NAME_VICE: &str = "vice_x64sc";
 const CORE_NAME_UAE: &str = "puae";
 const CORE_NAME_AMSTRAD: &str = "cap32";
 const CORE_NAME_ATARI: &str = "hatari";
+const CORE_NAME_MEGADRIVE: &str = "picodrive";
+const CORE_NAME_STELLA: &str = "stella";
+const CORE_NAME_SNES: &str = "bsnes";
 
 /// The `system` directory (BIOS/firmware files) bundled into the binary at
 /// build time. Extracted to the user's cache dir on first run.
@@ -358,7 +361,10 @@ pub fn get_core(sytem_type: SystemType) -> Result<PathBuf, &'static str> {
         SystemType::Amiga => CORE_NAME_UAE,
         SystemType::Amstrad => CORE_NAME_AMSTRAD,
         SystemType::AtariST => CORE_NAME_ATARI,
-        _ => return Err(""),
+        SystemType::Megadrive => CORE_NAME_MEGADRIVE,
+        SystemType::Atari2600 => CORE_NAME_STELLA,
+        SystemType::SuperNintendo => CORE_NAME_SNES,
+        SystemType::Unknown => return Err(""),
     };
 
     libloader::get_libretro(core_name).ok_or(core_name)

@@ -66,7 +66,8 @@ def main(argv):
         fp.write("#EXTM3U\n")
         fp.write(f"#EXTINF:-1 {info}\n" if info else "#EXTINF:-1\n")
         for name in moved:
-            fp.write(name + "\n")
+            if name.endswith("adf") or name.endswith("d64"):
+                fp.write(name + "\n")
 
     print(f"Created '{folder}' with {len(moved)} file(s) and demo.m3u")
 

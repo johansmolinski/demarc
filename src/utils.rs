@@ -1,5 +1,5 @@
 use anyhow::Result;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use std::{
     collections::HashMap,
@@ -7,14 +7,37 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::retro::system_dir;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum SystemType {
     C64,
     Amiga,
     Amstrad,
     AtariST,
+    Megadrive,
+    Atari2600,
+    SuperNintendo,
     #[default]
     Unknown,
+}
+
+fn check_reset_vector(data: &[u8]) -> bool {
+    let len = data.len();
+    if len < 4 {
+        return false;
+    }
+
+    // Reset vector is at the last 4 bytes: NMI, RESET, IRQ/BRK
+    // For a cart ending at $FFFF, reset vector is at offset len-4+2
+    let reset_lo = data[len - 4 + 2] as u16;
+    let reset_hi = data[len - 4 + 3] as u16;
+    let reset_addr = (reset_hi << 8) | reset_lo;
+
+    // Should point into the high ROM bank, typically $F000–$FFFF
+    // (or $E000–$FFFF for 8KB, etc.)
+    let bank_start = 0x10000u32 - len as u32;
+    reset_addr as u32 >= bank_start
 }
 
 pub fn get_system_type(path: &Path) -> SystemType {
@@ -25,6 +48,8 @@ pub fn get_system_type(path: &Path) -> SystemType {
             "d64" | "d81" => SystemType::C64,
             "dsk" => SystemType::Amstrad,
             "msa" | "st" => SystemType::AtariST,
+            "a26" => SystemType::Atari2600,
+            "smc" | "sfc" => SystemType::SuperNintendo,
             _ => SystemType::Unknown,
         }
     } else {
@@ -32,17 +57,35 @@ pub fn get_system_type(path: &Path) -> SystemType {
     };
     if system_type == SystemType::Unknown {
         info!("Checking {:?}", path);
-        if path.is_file() {
+        if path.is_dir() {
+            // if is_self_booting_dir(path) {
+            //     debug!("FMT: Amiga self-booting");
+            //     system_type = SystemType::Amiga;
+            // }
+        } else if path.is_file() {
             let Ok(data) = fs::read(path) else {
                 return SystemType::Unknown;
             };
+            let l = data.len();
             if data.len() >= 4 {
-                let start = u16::from_le_bytes(data[..2].try_into().unwrap());
-                if data[0..2] == [0x60, 0x1a] {
+                if l >= 0x200
+                    && std::str::from_utf8(&data[0x100..0x110])
+                        .unwrap_or("")
+                        .starts_with("SEGA ")
+                {
+                    system_type = SystemType::Megadrive;
+                } else if l.is_power_of_two()
+                    && (2048..=32768).contains(&l)
+                    && check_reset_vector(&data)
+                {
+                    system_type = SystemType::Atari2600;
+                } else if data[0..2] == [0x60, 0x1a] {
                     system_type = SystemType::AtariST;
                 } else if data[0..4] == [0x00, 0x00, 0x03, 0xF3] {
                     system_type = SystemType::Amiga;
-                } else if (0x0400..=0x0801).contains(&start) {
+                } else if (0x0400..=0x0801).contains(&u16::from_le_bytes(
+                    data[..2].try_into().unwrap_or_default(),
+                )) {
                     system_type = SystemType::C64;
                 }
             }
@@ -157,7 +200,6 @@ fn find_child(dir: &Path, name: &str) -> Option<PathBuf> {
 fn is_self_booting_dir(game: &Path) -> bool {
     find_child(game, "s").is_some_and(|s_dir| find_child(&s_dir, "startup-sequence").is_some())
 }
-
 /// Build a bootable Atari ST FAT12 floppy image containing an `AUTO` directory
 /// with `data` (a GEMDOS executable from `src`) copied into it, so it runs
 /// automatically when the disk boots. Returns the path to the `.st` image,
@@ -291,6 +333,25 @@ fn unzip_to_temp(path: &Path) -> Result<PathBuf> {
     Ok(target_dir)
 }
 
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
+    fs::create_dir_all(&dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            println!(
+                "COPY {:?} to {:?}",
+                entry.path(),
+                dst.as_ref().join(entry.file_name())
+            );
+            fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
 fn handle_release(in_path: &Path, tags: &HashMap<String, String>) -> Result<WorkingFile> {
     let mut system_type = get_system_type(in_path);
     let mut path = in_path.to_owned();
@@ -311,6 +372,7 @@ fn handle_release(in_path: &Path, tags: &HashMap<String, String>) -> Result<Work
         is_temp = true;
         system_type = get_system_type(&path);
     }
+    let mut copy_all = false;
 
     if path.is_dir() {
         if is_self_booting_dir(&path) {
@@ -332,6 +394,7 @@ fn handle_release(in_path: &Path, tags: &HashMap<String, String>) -> Result<Work
                 if t != SystemType::Unknown {
                     if one_file.is_none() {
                         one_file = Some(f.path());
+                        system_type = t;
                     }
                     let ext = f
                         .path()
@@ -353,6 +416,10 @@ fn handle_release(in_path: &Path, tags: &HashMap<String, String>) -> Result<Work
                 is_temp = true;
             } else if let Some(f) = one_file {
                 path = f;
+                copy_all = true;
+                //let target_dir = tempfile::Builder::new().prefix("demarc-").tempdir()?.keep();
+                //copy_dir_all(&path, &target_dir)?;
+                //path = target_dir;
             }
         }
     }
@@ -368,12 +435,28 @@ fn handle_release(in_path: &Path, tags: &HashMap<String, String>) -> Result<Work
         } else if data.len() >= 2 && data[0..2] == [0x01, 0x08] {
             system_type = SystemType::C64;
         } else if data.len() >= 4 && data[0..4] == [0x00, 0x00, 0x03, 0xF3] {
-            debug!("FMT: Amiga exe");
+            debug!("FMT: Amiga exe: {path:?}");
             let target_dir = tempfile::Builder::new().prefix("demarc-").tempdir()?.keep();
             let s_dir = target_dir.join("s");
             fs::create_dir(&s_dir)?;
-            fs::write(s_dir.join("startup-sequence"), "amiga_file\n")?;
-            fs::copy(&path, target_dir.join("amiga_file"))?;
+            let c_dir = target_dir.join("c");
+            fs::create_dir(&c_dir)?;
+            fs::copy(system_dir().join("c").join("echo"), c_dir.join("echo"))?;
+            if copy_all {
+                let name = path.file_name().unwrap().to_str().unwrap();
+                debug!("COPY ALL: {name}");
+                fs::write(
+                    s_dir.join("startup-sequence"),
+                    format!("echo \"Loading {name}...\"\n{name}\n"),
+                )?;
+                copy_dir_all(path.parent().unwrap(), &target_dir)?;
+            } else {
+                fs::write(
+                    s_dir.join("startup-sequence"),
+                    "echo \"Loading...\"\namiga_file\n",
+                )?;
+                fs::copy(&path, target_dir.join("amiga_file"))?;
+            }
             if std::fs::metadata(&path)?.len() > 850 * 1024 {
                 tags.insert("puae_model".into(), "A1200".into());
             }
@@ -459,6 +542,63 @@ pub fn handle_file(in_path: &Path, tags: &HashMap<String, String>) -> Result<Wor
         handle_release(in_path, tags)
     }
 }
+
+/// Recursively collect all detected emulator files under `dir` into `out`.
+pub fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    println!("Collect {:?}", dir);
+
+    // if dir.is_dir() && is_self_booting_dir(dir) {
+    //     println!("SELF BOOTING");
+    //     out.push(dir.to_owned());
+    //     return;
+    // }
+
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            warn!("Failed to read directory {}: {err}", dir.display());
+            return;
+        }
+    };
+    let mut files = vec![];
+    let mut dirs = vec![];
+    let mut found_type = SystemType::Unknown;
+    let mut mixed = false;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            println!("DIR {path:?}");
+            dirs.push(path);
+        } else if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("m3u"))
+        {
+            out.push(path);
+            return;
+        } else {
+            let t = get_system_type(&path);
+            if t != SystemType::Unknown {
+                if found_type != SystemType::Unknown && found_type != t {
+                    mixed = true;
+                }
+                found_type = t;
+                println!("FILE {path:?}");
+                files.push(path);
+            }
+        }
+    }
+
+    if mixed {
+        out.extend(files.iter().map(|f| f.into()));
+    } else if found_type != SystemType::Unknown {
+        out.push(dir.to_owned());
+        return;
+    }
+    for dir in dirs {
+        collect_files(&dir, out);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -472,11 +612,46 @@ mod tests {
     }
 
     #[test]
+    fn amiga_m3u() {
+        let assets = Path::new("demos").to_owned();
+        let wf = handle_file(&assets.join("nexus7").join("demo.m3u"), &HashMap::new()).unwrap();
+        println!("{:?}", wf);
+        assert_eq!(wf.settings.get("puae_model").unwrap(), "A1200");
+        assert_eq!(wf.system_type, SystemType::Amiga);
+    }
+
+    #[test]
     fn amiga_dir() {
         let assets = Path::new("demos").to_owned();
-        let wf = handle_file(&assets.join("o2-intro"), &HashMap::new()).unwrap();
+        let wf = handle_file(&assets.join("o2-intro").join("BACKUP"), &HashMap::new()).unwrap();
         println!("{:?}", wf);
         assert_eq!(wf.system_type, SystemType::Amiga);
-        assert!(wf.path.join("s").join("startup-sequence").exists());
+        assert!(wf.path.join("README").exists());
+        assert!(wf.path.join("o2intro").exists());
+
+        let wf = handle_file(&assets.join("o2-intro").join("o2intro"), &HashMap::new()).unwrap();
+        println!("{:?}", wf);
+        assert_eq!(wf.system_type, SystemType::Amiga);
+        assert!(wf.path.join("s").exists());
+        assert!(wf.path.join("s/startup-sequence").exists());
+        assert!(wf.path.join("amiga_file").exists());
+    }
+
+    #[test]
+    fn collect_amiga() {
+        let assets = Path::new("demos").to_owned();
+        let mut out = vec![];
+        collect_files(&assets.join("o2-intro"), &mut out);
+        println!("{:?}", out);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn all_demos() {
+        let assets = Path::new("demos").to_owned();
+        let mut out = vec![];
+        collect_files(&assets, &mut out);
+        println!("{:?}", out);
+        assert_eq!(out.len(), 6);
     }
 }

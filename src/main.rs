@@ -1,5 +1,5 @@
 #![allow(dead_code, clippy::too_many_arguments, clippy::type_complexity)]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bevy::render::extract_resource::ExtractResource;
 use bevy::window::{PrimaryWindow, WindowMode};
@@ -30,7 +30,7 @@ use retro::{RetroPlugin, system_dir};
 use screensaver::ScreenSaverPlugin;
 use tracing_subscriber::EnvFilter;
 
-use crate::utils::{SystemType, get_system_type};
+use crate::utils::collect_files;
 
 const CLAP_STYLES: Styles = Styles::styled()
     .header(
@@ -237,44 +237,6 @@ struct AppSettings {
     hotkey_pressed: f32,
 }
 
-/// Recursively collect all `.m3u` files under `dir` into `out`.
-fn collect_m3u_files(dir: &Path, out: &mut Vec<PathBuf>, group: bool) {
-    info!("Collect {:?}", dir);
-    let entries = match std::fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(err) => {
-            warn!("Failed to read directory {}: {err}", dir.display());
-            return;
-        }
-    };
-    let mut files = vec![];
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_m3u_files(&path, out, group);
-            continue;
-        }
-        if path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("m3u"))
-        {
-            out.push(path);
-            return;
-        } else {
-            let t = get_system_type(&path);
-            if t != SystemType::Unknown {
-                files.push(path);
-            }
-        }
-    }
-    if !files.is_empty() {
-        if group {
-            out.push(dir.to_owned());
-        } else {
-            out.extend(files.iter().map(|f| f.into()));
-        }
-    }
-}
 fn enter_fullscreen(mut window: Single<&mut Window, With<PrimaryWindow>>) {
     window.mode = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
 }
@@ -300,7 +262,7 @@ fn main() {
     for game in std::mem::take(&mut args.files) {
         if game.is_dir() {
             let len = games.len();
-            collect_m3u_files(&game, &mut games, false);
+            collect_files(&game, &mut games);
             if len == games.len() {
                 games.push(game);
             }

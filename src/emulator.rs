@@ -11,7 +11,7 @@ use crate::audio::AudioSink;
 use crate::libretro;
 use crate::retro::create_core;
 use crate::retro_emu::{RetroCoreThreaded, RetroEmu};
-use crate::utils::{WorkingFile, handle_file};
+use crate::utils::{SystemType, WorkingFile, handle_file};
 
 /// Where the cursor keys and Enter are routed by [`Emulator::feed_inputs`].
 /// In [`InputMode::Keyboard`] (the default) they map to the corresponding
@@ -407,6 +407,13 @@ impl Emulator {
                     return;
                 }
             };
+            let t = work_file.system_type;
+            if t == SystemType::Megadrive
+                || t == SystemType::SuperNintendo
+                || t == SystemType::Atari2600
+            {
+                self.input_mode = InputMode::Joystick1;
+            }
             self.core = Some(core);
             self.work_file = work_file;
             self.run_next = false;

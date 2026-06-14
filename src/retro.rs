@@ -175,6 +175,12 @@ fn setup_retro(world: &mut World) {
         set_var("puae_cpu_compatibility", "exact");
     }
 
+    if args.silent_drive {
+        set_var("puae_floppy_sound", "100");
+        set_var("vice_drive_sound_emulation", "disabled");
+        set_var("cap32_floppy_sound", "disabled");
+    }
+
     if args.fast_load {
         set_var("vice_jiffydos", "enabled");
         set_var("puae_floppy_speed", "0");

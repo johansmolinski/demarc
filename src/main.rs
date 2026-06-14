@@ -100,6 +100,10 @@ struct Args {
     #[arg(long)]
     fast_load: bool,
 
+    // Dont produce disk loading sound
+    #[arg(long)]
+    silent_drive: bool,
+
     /// Open windowed
     #[arg(long)]
     window: bool,

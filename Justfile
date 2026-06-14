@@ -6,3 +6,14 @@ install:
 
 test:
     cargo test
+
+HOME := x'${HOME}'
+ZOLA := HOME / "projects/docs/minnberg"
+
+site:
+    cargo xwin build --release --target x86_64-pc-windows-msvc
+    cp target/x86_64-pc-windows-msvc/release/demarc.exe {{ZOLA}}/static/dl/
+    cp demarc.md {{ZOLA}}/content/
+
+    zola -r {{ZOLA}} build
+    rsync -avz {{ZOLA}}/public/ sasq@minnberg.se:/var/www/html/

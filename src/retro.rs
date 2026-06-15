@@ -202,6 +202,10 @@ fn setup_retro(world: &mut World) {
         set_var("puae_floppy_speed", "0");
     }
 
+    if args.reu {
+        set_var("vice_ram_expansion_unit", "16384kB");
+    }
+
     for opt in &args.extra_options {
         if let Some((key, val)) = opt.split_once("=") {
             set_var(key.trim(), val.trim());

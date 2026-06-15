@@ -133,6 +133,10 @@ struct Args {
     #[arg(long, value_parser = parse_color, default_value = "000033")]
     clear_color: Color,
 
+    /// C64: Add ram expansion unit (16MB)
+    #[arg(long)]
+    reu: bool,
+
     /// Commodore variant (Only C64 well supported)
     #[arg(long, value_enum, default_value_t = CbmSystem::C64)]
     cbm_variant: CbmSystem,

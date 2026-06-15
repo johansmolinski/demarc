@@ -42,6 +42,8 @@ Set your monitor to 50Hz if possible.
 
 `demarc --help`
 
+`demarc <some_demo>`
+
 `demarc --aga --shuffle Amiga/`
 
 *TIP:* Download all intros from [https://intros.c64.org](https://intros.c64.org/]) and run

@@ -21,11 +21,14 @@ use crate::hud::{HudLocation, SetHudText};
 use crate::post_process::PostProcess;
 use crate::retro_emu::{RetroCoreThreaded, RetroEmu};
 use crate::utils::SystemType;
-use crate::{AppSettings, Args, libloader};
+use crate::{AppSettings, Args, CbmSystem, libloader};
 
 pub struct RetroPlugin {}
 
-const CORE_NAME_VICE: &str = "vice_x64sc";
+const CORE_NAME_VICE_64SC: &str = "vice_x64sc";
+const CORE_NAME_VICE_64: &str = "vice_x64";
+const CORE_NAME_VICE_DTV: &str = "vice_x64dtv";
+const CORE_NAME_VICE_128: &str = "vice_x128";
 const CORE_NAME_UAE: &str = "puae";
 const CORE_NAME_AMSTRAD: &str = "cap32";
 const CORE_NAME_ATARI: &str = "hatari";
@@ -155,7 +158,16 @@ fn setup_retro(world: &mut World) {
     set_var("atari800_ntscpal", "PAL");
     //set_var("atari800_system", "Modern XL/XE(576K)");
     set_var("atari800_system", "Modern XL/XE(1088K)");
+    set_var("vice_c128_video_output", "VDC");
 
+    set_var(
+        "cbm_variant",
+        match args.cbm_variant {
+            CbmSystem::C64 => "c64",
+            CbmSystem::C128 => "c128",
+            CbmSystem::Dtv => "dtv",
+        },
+    );
     if args.aga {
         set_var("puae_model", "A1200");
     }
@@ -378,9 +390,17 @@ const fn config_line_width() -> f32 {
     4.0
 }
 
-pub fn get_core(sytem_type: SystemType) -> Result<PathBuf, &'static str> {
+pub fn get_core(
+    sytem_type: SystemType,
+    tags: &HashMap<String, String>,
+) -> Result<PathBuf, &'static str> {
+    let cv = tags.get("cbm_variant").map_or("", |s| s.as_str());
+    info!("CBM VARIANT {cv}");
     let core_name = match sytem_type {
-        SystemType::C64 => CORE_NAME_VICE,
+        SystemType::C64 if cv == "dtv" => CORE_NAME_VICE_DTV,
+        SystemType::C64 if cv == "c128" => CORE_NAME_VICE_128,
+        SystemType::C64 if cv == "c64_fast" => CORE_NAME_VICE_64,
+        SystemType::C64 => CORE_NAME_VICE_64SC,
         SystemType::Amiga => CORE_NAME_UAE,
         SystemType::Amstrad => CORE_NAME_AMSTRAD,
         SystemType::AtariST => CORE_NAME_ATARI,
@@ -398,11 +418,11 @@ pub fn get_core(sytem_type: SystemType) -> Result<PathBuf, &'static str> {
 pub fn create_core(
     system_type: SystemType,
     game: &Path,
-    mut settings: HashMap<String, String>,
+    mut tags: HashMap<String, String>,
 ) -> Result<RetroCoreThreaded> {
     let mut set_var = |name: &str, val: &str| {
-        if !settings.contains_key(name) {
-            settings.insert(name.into(), val.into());
+        if !tags.contains_key(name) {
+            tags.insert(name.into(), val.into());
         }
     };
     if system_type == SystemType::Amiga {
@@ -422,8 +442,8 @@ pub fn create_core(
         set_var("hatari_fastboot", "true");
         set_var("hatari_video_crop_overscan", "false");
     }
-    match get_core(system_type) {
-        Ok(core) => RetroCoreThreaded::new(Path::new(&core), system_dir(), Some(game), settings),
+    match get_core(system_type, &tags) {
+        Ok(core) => RetroCoreThreaded::new(Path::new(&core), system_dir(), Some(game), tags),
         Err(name) => {
             bail!("Can not find core '{name}' for '{game:?}'");
         }

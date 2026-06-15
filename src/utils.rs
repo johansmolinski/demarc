@@ -47,7 +47,7 @@ pub fn get_system_type(path: &Path) -> SystemType {
         let ext = ext.to_lowercase();
         match ext.as_str() {
             "adf" | "dms" | "ipf" | "hdf" | "lha" | "slave" => SystemType::Amiga,
-            "d64" | "d81" => SystemType::C64,
+            "d64" | "d81" | "crt" | "g64" | "x64" => SystemType::C64,
             "dsk" => SystemType::Amstrad,
             "msa" | "st" => SystemType::AtariST,
             "a26" => SystemType::Atari2600,

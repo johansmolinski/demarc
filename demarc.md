@@ -17,7 +17,7 @@ C64, Amiga, Atari ST, Amstrad CPC, ZX Spectrum, Megadrive, SNES, Atari 2600, Ata
 * Runs multiple demos in order or shuffled
 * Shows demo meta data as overlay
 * CRT shader (Lottes) for "authentic" look
-* Can disk images and exes (Amiga,Atari,C64) and dirs (Amiga)
+* Can load disk images and executables
 * Right-Alt/Ctrl hotkey for disk switch etc
 * Can run multiple files at once in a grid
 

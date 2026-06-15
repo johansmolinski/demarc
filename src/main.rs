@@ -63,11 +63,11 @@ struct Args {
     /// Path to the files to load
     files: Vec<PathBuf>,
 
-    /// How to map the low-res render target onto the window.
+    /// How to map emulator screen onto window.
     #[arg(long, value_enum, default_value_t = ScaleModeArg::Fit)]
     scale: ScaleModeArg,
 
-    /// How to fill the border outside the image (letterbox/pillarbox bars).
+    /// How to fill the border outside the image.
     #[arg(long, value_enum, default_value_t = BorderModeArg::Black)]
     border: BorderModeArg,
 
@@ -83,7 +83,7 @@ struct Args {
     #[arg(long)]
     aga: bool,
 
-    /// Atari: Force STE
+    /// Atari ST: Force STE
     #[arg(long)]
     ste: bool,
 
@@ -91,20 +91,20 @@ struct Args {
     #[arg(long)]
     fast: bool,
 
-    /// Amiga: add extra memory
+    /// Amiga/Atari ST: add extra memory
     #[arg(long)]
     xmem: bool,
 
     /// C64: Always use JiffyDOS to load
     /// Amiga: Turn off disk rotation emulation
-    #[arg(long)]
+    #[arg(long, verbatim_doc_comment)]
     fast_load: bool,
 
-    // Dont produce disk loading sound
+    /// Amiga,C64,Amstrad: Dont produce disk loading sound
     #[arg(long)]
     silent_drive: bool,
 
-    /// Open windowed
+    /// Open windowed instead of full screen
     #[arg(long)]
     window: bool,
 
@@ -124,13 +124,17 @@ struct Args {
     #[arg(long, value_delimiter = ',')]
     extra_options: Vec<String>,
 
-    /// Grid rendering with an arbitrary COLSxROWS grid of emulators, e.g. --grid=5x4
+    /// Render multiple emulators in a COLSxROWS grid, e.g. --grid=5x4
     #[arg(long, value_parser = parse_grid)]
     grid: Option<(u32, u32)>,
 
     /// Background clear color as a hex string, e.g. `#003` or `000080`.
     #[arg(long, value_parser = parse_color, default_value = "000033")]
     clear_color: Color,
+
+    /// Commodore variant (Only C64 well supported)
+    #[arg(long, value_enum, default_value_t = CbmSystem::C64)]
+    cbm_variant: CbmSystem,
 }
 
 /// Parse a hex color string like `#003`, `#000080`, or `000080` into a [`Color`].
@@ -195,6 +199,16 @@ enum ScaleModeArg {
     Fit,
     /// Preserve aspect ratio, cropping top/bottom or left/right to fill.
     Zoom,
+}
+
+#[derive(Copy, Clone, Debug, clap::ValueEnum)]
+enum CbmSystem {
+    /// Default Commodore C64
+    C64,
+    /// Commodore 128
+    C128,
+    /// C64 DTV Stick
+    Dtv,
 }
 
 impl From<ScaleModeArg> for ScaleMode {

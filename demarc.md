@@ -11,7 +11,7 @@ _Main goal_: Make it easy to watch oldschool (PAL) demos
 
 Supported systems:
 
-C64, Amiga, Atari ST, Amstrad CPC, ZX Spectrum, Megadrive, SNES, Atari 2600, Atari XL
+C64, Amiga, Atari ST, Amstrad CPC, ZX Spectrum, Megadrive, SNES, Atari 2600, Atari XL, Tic-80
 
 
 * Runs multiple demos in order or shuffled
@@ -55,16 +55,19 @@ Set your monitor to 50Hz if possible.
 ## Demo Packs
 
 #### Best of Amiga OCS (and some AGA)
-[Amiga.7z](/dl/Amiga.7z) (55MB)
+* [Amiga.7z](/dl/Amiga.7z) (55MB)
 
 #### Best of Atari ST/STE
-[Atari.7z](/dl/Atari.7z) (9MB)
+* [Atari.7z](/dl/Atari.7z) (9MB)
 
 #### Best of other (Amstrad, Spectrum, Consoles etc)
-[Other.7z](/dl/Other.7z) (16MB)
+* [Other.7z](/dl/Other.7z) (16MB)
 
 
+#### CSDb Top demos
 
+* [C64-DemoTop500.7z](/dl/C64-DemoTop500.7z) (70MB)
+* [C64-OnefileTop250.7z](/dl/C64-OnefileTop250.7z) (5MB)
 
 ## Shortcuts
 

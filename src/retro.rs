@@ -37,6 +37,7 @@ const CORE_NAME_STELLA: &str = "stella";
 const CORE_NAME_SNES: &str = "bsnes";
 const CORE_NAME_SPECTRUM: &str = "fuse";
 const CORE_NAME_XL: &str = "atari800";
+const CORE_NAME_TIC80: &str = "tic80";
 
 /// The `system` directory (BIOS/firmware files) bundled into the binary at
 /// build time. Extracted to the user's cache dir on first run.
@@ -411,6 +412,7 @@ pub fn get_core(
         SystemType::SuperNintendo => CORE_NAME_SNES,
         SystemType::ZXSpectrum => CORE_NAME_SPECTRUM,
         SystemType::AtariXL => CORE_NAME_XL,
+        SystemType::Tic80 => CORE_NAME_TIC80,
         SystemType::Unknown => return Err(""),
     };
 

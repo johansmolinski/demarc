@@ -20,6 +20,7 @@ pub enum SystemType {
     SuperNintendo,
     ZXSpectrum,
     AtariXL,
+    Tic80,
     #[default]
     Unknown,
 }
@@ -62,6 +63,7 @@ pub fn get_system_type(path: &Path) -> SystemType {
             "tap" | "scl" | "trd" => SystemType::ZXSpectrum,
             "smc" | "sfc" => SystemType::SuperNintendo,
             "atr" | "xex" | "atx" => SystemType::AtariXL,
+            "tic80" | "tic" => SystemType::Tic80,
             _ => SystemType::Unknown,
         }
     } else {

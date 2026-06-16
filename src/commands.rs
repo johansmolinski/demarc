@@ -209,6 +209,7 @@ fn get_system_name(work_file: &WorkingFile) -> String {
         SystemType::Atari2600 => "Atari 2600",
         SystemType::SuperNintendo => "SNES",
         SystemType::AtariXL => "Atari XL",
+        SystemType::Tic80 => "Tic-80",
         SystemType::Unknown => "Unknown",
     }
     .to_string();

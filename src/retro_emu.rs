@@ -40,11 +40,12 @@ use crate::libretro::{
     RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY,
     RETRO_ENVIRONMENT_GET_VARIABLE, RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE,
     RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE, RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE,
-    RETRO_ENVIRONMENT_SET_GEOMETRY, RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK,
-    RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO,
-    RETRO_ENVIRONMENT_SET_VARIABLES, RETRO_PIXEL_FORMAT_0RGB1555, RETRO_PIXEL_FORMAT_RGB565,
-    RETRO_PIXEL_FORMAT_XRGB8888, retro_audio_sample_batch_t, retro_audio_sample_t,
-    retro_disk_control_callback, retro_disk_control_ext_callback, retro_environment_t,
+    RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK, RETRO_ENVIRONMENT_SET_GEOMETRY,
+    RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK, RETRO_ENVIRONMENT_SET_PIXEL_FORMAT,
+    RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO, RETRO_ENVIRONMENT_SET_VARIABLES,
+    RETRO_PIXEL_FORMAT_0RGB1555, RETRO_PIXEL_FORMAT_RGB565, RETRO_PIXEL_FORMAT_XRGB8888,
+    retro_audio_sample_batch_t, retro_audio_sample_t, retro_disk_control_callback,
+    retro_disk_control_ext_callback, retro_environment_t, retro_frame_time_callback,
     retro_game_geometry, retro_game_info, retro_input_poll_t, retro_input_state_t,
     retro_keyboard_callback, retro_log_callback, retro_log_level, retro_pixel_format,
     retro_system_av_info, retro_variable, retro_video_refresh_t,
@@ -141,6 +142,8 @@ pub struct RetroCoreDirect {
     /// the copy lives as long as the loaded library and is removed on drop.
     _core_tempdir: tempfile::TempDir,
     skip_frames: u32,
+    retro_frame_time: Option<unsafe extern "C" fn(i64)>,
+    time_reference: i64,
 }
 impl Drop for RetroCoreDirect {
     fn drop(&mut self) {
@@ -385,6 +388,12 @@ impl RetroCoreDirect {
         let mut handled = true;
         unsafe {
             match cmd {
+                RETRO_ENVIRONMENT_SET_FRAME_TIME_CALLBACK => {
+                    let callback = data as *mut retro_frame_time_callback;
+                    info!("SET FRAME TIME");
+                    self.time_reference = (*callback).reference;
+                    self.retro_frame_time = (*callback).callback;
+                }
                 RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO => {
                     let avinfo = &(*(data as *mut retro_system_av_info));
                     self.state.aspect_ratio = geometry_aspect(&avinfo.geometry);
@@ -591,6 +600,8 @@ impl RetroCoreDirect {
                 image_index: 0,
                 _core_tempdir: core_tempdir,
                 skip_frames: 0,
+                retro_frame_time: None,
+                time_reference: 0,
             };
             CURRENT_EMU.with(|p| p.set(&mut retro_emu as *mut _));
             retro_set_environment(Self::environment_cb);
@@ -673,6 +684,9 @@ impl RetroCoreDirect {
     }
     pub fn run(&mut self) {
         CURRENT_EMU.with(|p| p.set(self as *mut _));
+        if let Some(cb) = self.retro_frame_time {
+            unsafe { cb(self.time_reference) }
+        }
         unsafe { (self.retro_run_fn)() }
         // Relative motion has been consumed by the core this frame.
         self.mouse.dx = 0;

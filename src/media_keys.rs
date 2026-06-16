@@ -54,7 +54,7 @@ mod linux_impl {
     impl MainInterface {
         #[zbus(property)]
         fn identity(&self) -> String {
-            "Oldplay".to_string()
+            "Demarc".to_string()
         }
 
         #[zbus(property)]
@@ -336,7 +336,7 @@ mod linux_impl {
 // Public API - works on all platforms
 #[cfg(target_os = "linux")]
 pub fn start() -> (mpsc::Sender<MediaKeyInfo>, mpsc::Receiver<MediaKeyEvent>) {
-    let (sender, receiver, _) = linux_impl::start_with_name("org.mpris.MediaPlayer2.oldplay");
+    let (sender, receiver, _) = linux_impl::start_with_name("org.mpris.MediaPlayer2.demarc");
     (sender, receiver)
 }
 

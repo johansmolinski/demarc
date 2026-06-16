@@ -304,7 +304,10 @@ impl Emulator {
             KeyCode::ArrowDown => Some(RETRO_DEVICE_ID_JOYPAD_DOWN),
             KeyCode::ArrowLeft => Some(RETRO_DEVICE_ID_JOYPAD_LEFT),
             KeyCode::ArrowRight => Some(RETRO_DEVICE_ID_JOYPAD_RIGHT),
-            KeyCode::Enter => Some(RETRO_DEVICE_ID_JOYPAD_B),
+            KeyCode::KeyZ => Some(RETRO_DEVICE_ID_JOYPAD_START),
+            KeyCode::KeyX => Some(RETRO_DEVICE_ID_JOYPAD_SELECT),
+            KeyCode::Enter | KeyCode::Space => Some(RETRO_DEVICE_ID_JOYPAD_B),
+            KeyCode::ShiftRight | KeyCode::Backspace => Some(RETRO_DEVICE_ID_JOYPAD_A),
             _ => None,
         }
     }
@@ -525,13 +528,10 @@ impl Emulator {
         }
 
         // For safety
-        if occupied_len < AUDIO_BUF_MIN {
+        if !self.skipping && occupied_len < AUDIO_BUF_MIN {
             result &= core.run();
             warn!("Duplicating frame");
-            //self.core = Some(core);
-            //return;
         }
-        //drop(p);
         self.update();
         result
     }

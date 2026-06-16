@@ -1004,6 +1004,7 @@ fn worker_loop(
         if core.skip_frames > 0 {
             core.skip_frames -= 1;
             if core.skip_frames == 0 {
+                core.with_audio(|_| {});
                 let update = RetroUpdate {
                     ..Default::default()
                 };
@@ -1064,6 +1065,7 @@ impl RetroEmu for RetroCoreThreaded {
         if let Ok(update) = self.update_rx.get_mut().unwrap().try_recv() {
             if update.frame.is_empty() && update.audio.is_empty() {
                 info!("GOT 0 UPDATE");
+                self.audio.clear();
                 return false;
             }
             self.frame = update.frame;

@@ -39,6 +39,7 @@ const CORE_NAME_SNES: &str = "bsnes";
 const CORE_NAME_SPECTRUM: &str = "fuse";
 const CORE_NAME_XL: &str = "atari800";
 const CORE_NAME_TIC80: &str = "tic80";
+const CORE_NAME_PICO8: &str = "fake08";
 
 const SYSTEM_ZIP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/system.zip"));
 
@@ -427,6 +428,7 @@ pub fn get_core(
         SystemType::ZXSpectrum => CORE_NAME_SPECTRUM,
         SystemType::AtariXL => CORE_NAME_XL,
         SystemType::Tic80 => CORE_NAME_TIC80,
+        SystemType::Pico8 => CORE_NAME_PICO8,
         SystemType::Unknown => return Err(""),
     };
 

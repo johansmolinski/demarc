@@ -64,6 +64,10 @@ struct Args {
     /// Path to the files to load
     files: Vec<PathBuf>,
 
+    /// Treat disk images in same dir as separate files
+    #[arg(long)]
+    many: bool,
+
     /// How to map emulator screen onto window.
     #[arg(long, value_enum, default_value_t = ScaleModeArg::Fit)]
     scale: ScaleModeArg,
@@ -286,7 +290,7 @@ fn main() {
     for game in std::mem::take(&mut args.files) {
         if game.is_dir() {
             let len = games.len();
-            collect_files(&game, &mut games);
+            collect_files(&game, &mut games, args.many);
             if len == games.len() {
                 games.push(game);
             }

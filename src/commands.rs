@@ -210,6 +210,7 @@ fn get_system_name(work_file: &WorkingFile) -> String {
         SystemType::SuperNintendo => "SNES",
         SystemType::AtariXL => "Atari XL",
         SystemType::Tic80 => "Tic-80",
+        SystemType::Pico8 => "Pico8",
         SystemType::Unknown => "Unknown",
     }
     .to_string();

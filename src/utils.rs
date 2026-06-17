@@ -21,6 +21,7 @@ pub enum SystemType {
     ZXSpectrum,
     AtariXL,
     Tic80,
+    Pico8,
     #[default]
     Unknown,
 }
@@ -64,6 +65,7 @@ pub fn get_system_type(path: &Path) -> SystemType {
             "smc" | "sfc" => SystemType::SuperNintendo,
             "atr" | "xex" | "atx" => SystemType::AtariXL,
             "tic80" | "tic" => SystemType::Tic80,
+            "p8" => SystemType::Pico8,
             _ => SystemType::Unknown,
         }
     } else {
@@ -436,29 +438,33 @@ fn handle_release(in_path: &Path, tags: &HashMap<String, String>) -> Result<Work
             system_type = SystemType::C64;
         } else if data.len() >= 4 && data[0..4] == [0x00, 0x00, 0x03, 0xF3] {
             debug!("FMT: Amiga exe: {path:?}");
+            if std::fs::metadata(&path)?.len() > 850 * 1024 {
+                tags.insert("puae_model".into(), "A1200".into());
+            }
             let target_dir = tempfile::Builder::new().prefix("demarc-").tempdir()?.keep();
             let s_dir = target_dir.join("s");
             fs::create_dir(&s_dir)?;
             let c_dir = target_dir.join("c");
             fs::create_dir(&c_dir)?;
             fs::copy(system_dir().join("c").join("echo"), c_dir.join("echo"))?;
+            let mut text: String = "".into();
+            let model = tags.get("puae_model").map_or("", |s| s.as_str());
+            if model == "A1200" || model == "A4000" {
+                fs::copy(
+                    system_dir().join("c").join("SetPatch"),
+                    c_dir.join("SetPatch"),
+                )?;
+                text += "SetPatch QUIET\n";
+            }
             if copy_all {
                 let name = path.file_name().unwrap().to_str().unwrap();
-                debug!("COPY ALL: {name}");
-                fs::write(
-                    s_dir.join("startup-sequence"),
-                    format!("echo \"Loading...\"\n{name}\n"),
-                )?;
+                text += &format!("echo \"Loading...\"\n{name}\n");
+            }
+            fs::write(s_dir.join("startup-sequence"), text)?;
+            if copy_all {
                 copy_dir_all(path.parent().unwrap(), &target_dir)?;
             } else {
-                fs::write(
-                    s_dir.join("startup-sequence"),
-                    "echo \"Loading...\"\namiga_file\n",
-                )?;
                 fs::copy(&path, target_dir.join("amiga_file"))?;
-            }
-            if std::fs::metadata(&path)?.len() > 850 * 1024 {
-                tags.insert("puae_model".into(), "A1200".into());
             }
             path = target_dir;
             is_temp = true;
@@ -544,7 +550,7 @@ pub fn handle_file(in_path: &Path, tags: &HashMap<String, String>) -> Result<Wor
 }
 
 /// Recursively collect all detected emulator files under `dir` into `out`.
-pub fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
+pub fn collect_files(dir: &Path, out: &mut Vec<PathBuf>, many: bool) {
     // if dir.is_dir() && is_self_booting_dir(dir) {
     //     println!("SELF BOOTING");
     //     out.push(dir.to_owned());
@@ -561,7 +567,7 @@ pub fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let mut files = vec![];
     let mut dirs = vec![];
     let mut found_type = SystemType::Unknown;
-    let mut mixed = false;
+    let mut mixed = many;
     let mut disk_images = true;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -588,14 +594,16 @@ pub fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
         }
     }
 
-    if mixed || (!disk_images) {
+    // Mixed types in directory, add every valid file one by one
+    // Amiga: Always add parent dir (to get data files)
+    if mixed || ((!disk_images) && found_type != SystemType::Amiga) {
         out.extend(files.iter().map(|f| f.into()));
     } else if found_type != SystemType::Unknown {
         out.push(dir.to_owned());
         return;
     }
     for dir in dirs {
-        collect_files(&dir, out);
+        collect_files(&dir, out, many);
     }
 }
 
@@ -635,7 +643,7 @@ mod tests {
     fn collect_amiga() {
         let assets = Path::new("demos").to_owned();
         let mut out = vec![];
-        collect_files(&assets.join("o2-intro"), &mut out);
+        collect_files(&assets.join("o2-intro"), &mut out, false);
         println!("{:?}", out);
         assert_eq!(out.len(), 1);
     }
@@ -644,7 +652,7 @@ mod tests {
     fn all_demos() {
         let assets = Path::new("demos").to_owned();
         let mut out = vec![];
-        collect_files(&assets, &mut out);
+        collect_files(&assets, &mut out, false);
         println!("{:?}", out);
         assert_eq!(out.len(), 6);
     }

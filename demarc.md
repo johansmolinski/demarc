@@ -23,6 +23,13 @@ C64, Amiga, Atari ST, Amstrad CPC, ZX Spectrum, Megadrive, SNES, Atari 2600, Ata
 * Linux: Pause screen blanker and handle media keys
 
 
+## Install (Linux, Mac, Windows)
+
+You need [rust](https://rustup.rs).
+
+`cargo install --git https://github.com/sasq64/demarc.git`
+
+
 ## Download (Windows)
 
 Pre-built windows binary [here](/dl/demarc.exe)
@@ -31,12 +38,6 @@ Pre-built windows binary [here](/dl/demarc.exe)
 
 (Another note to windows users; if you _really_ don't want to use the command line, you can drag and drop demos onto the demarc executable to run them).
 
-
-## Rust Install
-
-You need [rust](https://rustup.rs).
-
-`cargo install --git https://github.com/sasq64/demarc.git`
 
 ## Prepare
 

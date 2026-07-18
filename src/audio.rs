@@ -203,14 +203,18 @@ pub fn init_audio_stream(
         .expect("no supported config");
     let sample_rate = target.min(supported.max_sample_rate());
 
-    // We continuously adjust the resample ratio based on how full the ring
-    // buffer is, so a small buffer is desirable for tight feedback. Prefer 2048
-    // frames, but clamp into the device's advertised range: if the smallest
-    // supported buffer is larger than 2048 we take that (the lowest supported),
-    // and if the range is unknown we let the backend choose. cpal's CoreAudio
-    // backend rejects out-of-range fixed sizes with `StreamConfigNotSupported`,
-    // so this clamp is what keeps macOS happy.
-    const PREFERRED_BUFFER: u32 = 2048;
+    // ALSA hardware buffer (cpal maps `Fixed(v)` to buffer=v, period≈v/4). It
+    // must be big enough that the audio thread — which runs at normal priority
+    // and competes with emulation + rendering — can always be scheduled before
+    // it drains, or ALSA reports an underrun (POLLERR) and the stream faults.
+    // Measured on Intel HD 4000 / dmix under full CPU load: 2048 (~43ms)
+    // underran repeatedly, 4096 (~85ms) was clean; 4096 keeps latency (and thus
+    // audio/video sync offset) low and stays below AUDIO_BUF_MIN so the ring
+    // tuning is unaffected. Note the drift controller measures the *ring* fill,
+    // not this buffer, so a larger value here doesn't loosen its feedback.
+    // Clamp into the device's advertised range (and cpal's CoreAudio backend
+    // rejects out-of-range fixed sizes, which is what keeps macOS happy).
+    const PREFERRED_BUFFER: u32 = 4096;
     let buffer_size = match supported.buffer_size() {
         cpal::SupportedBufferSize::Range { min, max } => {
             cpal::BufferSize::Fixed(PREFERRED_BUFFER.clamp(*min, *max))

@@ -275,7 +275,7 @@ impl Emulator {
         self.audio_on = on;
     }
 
-    pub fn update(&mut self, audio: &mut AudioOutput) {
+    pub fn update(&mut self, audio: &mut AudioOutput, now: f64) {
         let Emulator {
             core,
             resampler,
@@ -301,7 +301,7 @@ impl Emulator {
         // audio to play (see `AudioOutput::ensure_stream`). Until it is ready
         // (still opening, or disabled after a fault) just drain and stay silent
         // so the core's audio queue doesn't back up.
-        audio.ensure_stream();
+        audio.ensure_stream(now);
         if !audio.is_ready() {
             core.with_audio(&mut |_| {});
             *resampler = None;
@@ -565,7 +565,7 @@ impl Emulator {
             result &= core.run();
             warn!("Duplicating frame");
         }
-        self.update(audio);
+        self.update(audio, time.elapsed_secs_f64());
         result
     }
 }

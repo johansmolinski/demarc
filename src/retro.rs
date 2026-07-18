@@ -512,9 +512,9 @@ fn run_retro(
         cmd_writer.write(CmdMessage(cmd, shift));
     }
 
-    // If the output stream faulted, shut audio down (off-thread) so its backend
-    // stops spinning; the demo keeps running silently.
-    audio.poll_fault();
+    // Per-frame audio housekeeping: recover a faulted stream (bounded retries)
+    // or, if the device can't keep up, disable audio so the demo keeps running.
+    audio.maintain(time.elapsed_secs_f64());
 
     for (i, mut emu) in &mut emus.iter_mut().enumerate() {
         let Some(image) = images.get_mut(&emu.image) else {

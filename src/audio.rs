@@ -252,10 +252,11 @@ pub fn init_audio_stream(
     Ok((config.sample_rate.0 as f32, stream))
 }
 
-/// Frames to wait before retrying output-stream init after a failure, so a
-/// device that can't be opened backs off instead of retrying every frame. ~0.5s
-/// at 60 FPS.
-const RECOVER_DELAY_FRAMES: u32 = 30;
+/// Wall-clock seconds to wait before retrying a failed/faulted stream. Timed
+/// (not frame-counted) so that during a startup stall — when frames are tiny and
+/// many pass per second — retries still spread out enough to land *after* the
+/// stall instead of all refaulting inside it.
+const RETRY_COOLDOWN_SECS: f64 = 1.5;
 
 /// The single, process-wide audio output.
 ///
@@ -280,30 +281,35 @@ pub struct AudioOutput {
     mix: Vec<f32>,
     /// Set by the cpal error callback when the stream faults.
     errored: Arc<AtomicBool>,
-    /// Countdown of frames before a failed-to-open stream is retried.
-    recover_delay: u32,
-    /// Once the stream has faulted we give up on audio entirely (see
-    /// [`poll_fault`](Self::poll_fault)) rather than churn rebuilds.
+    /// Wall-clock time (secs since startup) before which a missing stream must
+    /// not be (re)opened — the post-fault / post-failure backoff.
+    retry_after: f64,
+    /// Faults since the last sustained-healthy stretch. Bounded retries let a
+    /// transient startup underrun (e.g. GPU shader warm-up stalling the main
+    /// thread) recover, while genuinely persistent starvation still gives up.
+    fault_count: u32,
+    /// Frames the current stream has run without faulting; resets `fault_count`
+    /// once it proves stable so occasional faults over a long run don't add up.
+    healthy_frames: u32,
+    /// Set once we stop retrying: audio is off for the rest of the run.
     disabled: bool,
 }
+
+/// Faults tolerated (with rebuilds) before audio is disabled for good.
+const MAX_AUDIO_FAULTS: u32 = 5;
+/// Healthy frames that mark a stream as stable and clear `fault_count`.
+const HEALTHY_RESET_FRAMES: u32 = 300;
 
 impl AudioOutput {
     /// Builds the output stream if it isn't up yet. Call this only once there is
     /// audio to play: a stream started against an empty buffer (before any
     /// emulator is producing) faults immediately on ALSA `dmix`, whereas one
-    /// opened when samples are already flowing runs cleanly. On init failure it
-    /// backs off `RECOVER_DELAY_FRAMES` before retrying so it can't spam.
-    ///
-    /// The stream is deliberately *never* torn down on a runtime fault: dropping
-    /// a cpal ALSA stream joins its I/O thread, and a thread wedged spinning on
-    /// `POLLERR` never returns — doing that from the main loop would hang the
-    /// whole app. A fault is instead just logged once (see the error callback).
-    pub fn ensure_stream(&mut self) {
-        if self.stream.is_some() || self.disabled {
-            return;
-        }
-        if self.recover_delay > 0 {
-            self.recover_delay -= 1;
+    /// opened when samples are already flowing runs cleanly. `now` is seconds
+    /// since startup; a failed open (or a post-fault rebuild, see
+    /// [`maintain`](Self::maintain)) backs off [`RETRY_COOLDOWN_SECS`] before the
+    /// next attempt so it can't spam.
+    pub fn ensure_stream(&mut self, now: f64) {
+        if self.stream.is_some() || self.disabled || now < self.retry_after {
             return;
         }
         let (producer, consumer) = ringbuf::HeapRb::<f32>::new(4096 * 8).split();
@@ -316,41 +322,64 @@ impl AudioOutput {
             }
             Err(e) => {
                 error!("Could not init audio: {e:#}");
-                self.recover_delay = RECOVER_DELAY_FRAMES;
+                self.retry_after = now + RETRY_COOLDOWN_SECS;
             }
         }
     }
 
     /// Whether the output is up and accepting samples. False before the stream
-    /// is first built and after it has been [disabled](Self::poll_fault).
+    /// is first built and after it has been [disabled](Self::maintain).
     pub fn is_ready(&self) -> bool {
         self.producer.is_some()
     }
 
-    /// Shuts audio down for good if the stream reported a fault, *without*
-    /// blocking the main thread.
+    /// Per-frame audio housekeeping: handle a faulted stream and track stability.
+    /// Call once per frame before mixing.
     ///
-    /// After a `POLLERR` cpal's I/O thread busy-spins on the dead stream, pegging
-    /// a core — fatal on a machine already CPU-bound on software rendering, and
-    /// the reason the app appeared to hang. Dropping the stream stops that
-    /// thread, but the drop *joins* it and can take a long time (or never
-    /// return), so we hand the stream to a detached thread to drop and carry on
-    /// silently. We deliberately do not rebuild: the underruns come from the
-    /// audio thread being starved of CPU, so a fresh stream would only fault
-    /// again and churn.
-    pub fn poll_fault(&mut self) {
-        if self.disabled || !self.errored.load(Ordering::Relaxed) {
+    /// On a fault we tear the stream down *without blocking the main thread* and
+    /// schedule a rebuild ([`ensure_stream`] does the actual reopen after a short
+    /// delay). After a `POLLERR` cpal's I/O thread busy-spins on the dead stream,
+    /// pegging a core, and dropping the stream *joins* that thread — which can
+    /// take a long time or never return — so the drop is handed to a detached
+    /// thread. We retry up to [`MAX_AUDIO_FAULTS`] times: a transient underrun
+    /// recovers, but a device that can't keep up (e.g. software rendering
+    /// starving the audio thread) is disabled instead of churning forever.
+    pub fn maintain(&mut self, now: f64) {
+        if self.disabled {
             return;
         }
-        warn!("audio stream faulted (device starved); disabling audio");
-        self.disabled = true;
-        self.producer = None;
-        self.mix.clear();
-        self.mix.shrink_to_fit();
-        if let Some(stream) = self.stream.take() {
-            // SAFETY note carried by `SendStream`: the handle is safe to drop
-            // off-thread. This thread may block in the drop; the app does not.
-            std::thread::spawn(move || drop(stream));
+
+        // Only count a fault while a stream is actually up: `errored` stays set
+        // after tear-down until the next build clears it, and re-counting it each
+        // waiting frame would otherwise burn every retry in a single instant.
+        if self.stream.is_some() && self.errored.load(Ordering::Relaxed) {
+            self.healthy_frames = 0;
+            self.fault_count += 1;
+            self.producer = None;
+            self.mix.clear();
+            if let Some(stream) = self.stream.take() {
+                // SAFETY note carried by `SendStream`: safe to drop off-thread.
+                // That thread may block in the drop; the app does not.
+                std::thread::spawn(move || drop(stream));
+            }
+            if self.fault_count > MAX_AUDIO_FAULTS {
+                warn!("audio stream kept faulting (device starved); disabling audio");
+                self.disabled = true;
+                self.mix.shrink_to_fit();
+            } else {
+                warn!(
+                    "audio stream faulted; rebuilding in {RETRY_COOLDOWN_SECS}s (attempt {}/{})",
+                    self.fault_count, MAX_AUDIO_FAULTS
+                );
+                self.retry_after = now + RETRY_COOLDOWN_SECS;
+            }
+        } else if self.is_ready() {
+            // Stream is running clean; once it's proven stable, forgive earlier
+            // faults so a later isolated blip doesn't count toward the cap.
+            self.healthy_frames = self.healthy_frames.saturating_add(1);
+            if self.fault_count > 0 && self.healthy_frames >= HEALTHY_RESET_FRAMES {
+                self.fault_count = 0;
+            }
         }
     }
 
